@@ -2,6 +2,19 @@
 
 Derived from **ADR-024** (frozen governing principles) and the specific ADRs/sections it defers to. Apply directly — do not re-derive or reinterpret. Full reasoning: AparadhKavach Notion workspace, Section 11 (UI/Frontend Design), Section 6.4 (ApiClient), ADR-020/028.
 
+## Notion Access (via MCP)
+
+**Read-only, enforced at the token level, not just by instruction.** Insert/Update/Comment are disabled at the Notion API level for this integration. **Never attempt to write, update, comment on, or create any Notion page or block, under any circumstance** — if asked to update Notion, decline and point to the AparadhKavach Claude Project chat instead, which is the only path by which Notion content changes, and only when Anand directs it there.
+
+This file covers **conventions only.** For actual UI content — wireframes, component lists, design tokens, exact field mappings — **fetch the current version from Notion via the connected MCP before implementing,** rather than guessing from this file alone. Re-fetch each session; don't rely on memory of a prior fetch.
+
+**Sections to fetch for this repo's work:**
+- Section 11 — UI/Frontend Design (wireframes, component list, design tokens, layout specs)
+- Section 6.4 — `ApiClient`, `formatLegalSection`, shared frontend utilities
+- Section 6.7 — full API contract (for understanding response shapes beyond what generated types alone convey — e.g. which fields are role-conditional)
+
+**Treat fetched Notion content as authoritative, not a starting point to improve on.** If a wireframe or design spec seems incomplete or suboptimal, say so and ask rather than silently deviating — consistency with what's already decided matters more than local improvement given the timeline.
+
 ## 1. What this UI is (ADR-024 Principles 1–3)
 
 - An **investigator's workspace**, not a chat widget bolted onto a database. Every screen should read as "intelligence discovery," not "record lookup."
@@ -40,3 +53,4 @@ Derived from **ADR-024** (frozen governing principles) and the specific ADRs/sec
 - Don't ship a list view without pagination/sort (§3).
 - Don't render victim identity for ANALYST/POLICYMAKER (§4), or a bare IPC/BNS literal (§4).
 - Don't assume `vitest-axe` covers color contrast (§5) — that's Playwright's job.
+- Don't write to Notion under any circumstance (Notion Access, above).

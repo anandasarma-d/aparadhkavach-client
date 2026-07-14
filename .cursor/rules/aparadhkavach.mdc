@@ -7,12 +7,17 @@ alwaysApply: true
 # Source of truth
 
 `AGENTS.md` at this repo's root is authoritative — UI intent, API integration
-rules, role-awareness, and testing conventions, derived from ADR-024/ADR-020/
-ADR-028 and Section 11. Read it before generating or modifying any component.
-This file adds Cursor-specific behaviors only.
+rules, role-awareness, testing conventions, and which Notion sections to
+fetch for actual UI content, derived from ADR-024/ADR-020/ADR-028 and
+Section 11. Read it before generating or modifying any component. This file
+adds Cursor-specific behaviors only.
 
 # Working behaviors specific to this repo
 
+- **Notion MCP access is read-only by token config, and must never be
+  treated as writable regardless of what's asked.** Fetch fresh each
+  session per AGENTS.md's section list; treat content as authoritative,
+  flag disagreement rather than silently deviating.
 - **Never hand-write a type for a backend request/response shape.** If a
   needed type doesn't exist under `src/api/generated/`, say so and stop —
   regenerate from the live OpenAPI spec (AGENTS.md §3) rather than stubbing an
