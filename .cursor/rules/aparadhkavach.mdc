@@ -1,0 +1,33 @@
+---
+description: AparadhKavach governing conventions for aparadhkavach-client
+globs:
+alwaysApply: true
+---
+
+# Source of truth
+
+`AGENTS.md` at this repo's root is authoritative — UI intent, API integration
+rules, role-awareness, and testing conventions, derived from ADR-024/ADR-020/
+ADR-028 and Section 11. Read it before generating or modifying any component.
+This file adds Cursor-specific behaviors only.
+
+# Working behaviors specific to this repo
+
+- **Never hand-write a type for a backend request/response shape.** If a
+  needed type doesn't exist under `src/api/generated/`, say so and stop —
+  regenerate from the live OpenAPI spec (AGENTS.md §3) rather than stubbing an
+  interface that will silently drift from the real contract.
+- **Before adding a new UI dependency** (a component library, a date picker,
+  a chart library), check whether shadcn/ui + the already-approved libraries
+  (react-force-graph, D3, recharts-equivalent per Section 11) cover it first.
+- **When building a new list/table view, generate pagination and sort
+  controls in the same pass as the initial layout** — not as a follow-up.
+  This was a real gap caught late once already; don't repeat it.
+- **When a component renders anything from the API response involving a
+  victim, an IPC/BNS citation, or role-restricted data, explicitly call out
+  in your response which AGENTS.md rule applies** (victim-identity stripping,
+  `formatLegalSection`, role-gated fetch) — don't apply it silently in a way
+  that's easy to miss in review.
+- **Flag, don't silently fix, any existing code that contradicts
+  `AGENTS.md`** (e.g., `localStorage` used for a token, a hand-written API
+  type). Point it out and ask before changing it.
