@@ -54,3 +54,4 @@ This file covers **conventions only.** For actual UI content — wireframes, com
 - Don't render victim identity for ANALYST/POLICYMAKER (§4), or a bare IPC/BNS literal (§4).
 - Don't assume `vitest-axe` covers color contrast (§5) — that's Playwright's job.
 - Don't write to Notion under any circumstance (Notion Access, above).
+- Do not include a Co-Authored-By line in commit messages, and do not add a 'Generated with Claude Code' footer to PR descriptions.
