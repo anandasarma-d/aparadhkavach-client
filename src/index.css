@@ -1,1 +1,198 @@
 @import "tailwindcss";
+
+/*
+ * Visual tokens locked in the Claude Design mockup (MVP-1 Full Checklist §7.5 /
+ * Cursor Prompts Log C2 reference). Do not substitute Section 11.8 dark/Inter
+ * tokens here until a deliberate design-system merge is decided.
+ */
+:root {
+  --paper: #f3f3ee;
+  --surface: #ffffff;
+  --surface-2: #eceae2;
+  --ink: #182437;
+  --ink-muted: #56637a;
+  --ink-faint: #8a94a6;
+  --line: #dadfe0;
+  --line-strong: #c3c9cc;
+  --accent: #2e6e75;
+  --accent-ink: #1d4a4f;
+  --accent-soft: #e3edec;
+  --risk-low: #3f7856;
+  --risk-low-soft: #e5eee7;
+  --risk-moderate: #96701c;
+  --risk-moderate-soft: #f2ead9;
+  --risk-high: #a23b3b;
+  --risk-high-soft: #f3e4e2;
+  --shadow: 0 1px 2px rgba(24, 36, 55, 0.06), 0 1px 1px rgba(24, 36, 55, 0.04);
+  --font-display: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman",
+    serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #10161f;
+    --surface: #161f2a;
+    --surface-2: #1c2632;
+    --ink: #e7e6e0;
+    --ink-muted: #9aa5b4;
+    --ink-faint: #68758a;
+    --line: #2a3444;
+    --line-strong: #3a4658;
+    --accent: #6fb3b8;
+    --accent-ink: #a9dade;
+    --accent-soft: #182e30;
+    --risk-low: #5fa97e;
+    --risk-low-soft: #152820;
+    --risk-moderate: #d0a24a;
+    --risk-moderate-soft: #2b2416;
+    --risk-high: #d07260;
+    --risk-high-soft: #2c1a17;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.25);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #10161f;
+  --surface: #161f2a;
+  --surface-2: #1c2632;
+  --ink: #e7e6e0;
+  --ink-muted: #9aa5b4;
+  --ink-faint: #68758a;
+  --line: #2a3444;
+  --line-strong: #3a4658;
+  --accent: #6fb3b8;
+  --accent-ink: #a9dade;
+  --accent-soft: #182e30;
+  --risk-low: #5fa97e;
+  --risk-low-soft: #152820;
+  --risk-moderate: #d0a24a;
+  --risk-moderate-soft: #2b2416;
+  --risk-high: #d07260;
+  --risk-high-soft: #2c1a17;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.25);
+}
+
+:root[data-theme="light"] {
+  --paper: #f3f3ee;
+  --surface: #ffffff;
+  --surface-2: #eceae2;
+  --ink: #182437;
+  --ink-muted: #56637a;
+  --ink-faint: #8a94a6;
+  --line: #dadfe0;
+  --line-strong: #c3c9cc;
+  --accent: #2e6e75;
+  --accent-ink: #1d4a4f;
+  --accent-soft: #e3edec;
+  --risk-low: #3f7856;
+  --risk-low-soft: #e5eee7;
+  --risk-moderate: #96701c;
+  --risk-moderate-soft: #f2ead9;
+  --risk-high: #a23b3b;
+  --risk-high-soft: #f3e4e2;
+  --shadow: 0 1px 2px rgba(24, 36, 55, 0.06), 0 1px 1px rgba(24, 36, 55, 0.04);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.chip-record,
+.chip-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 9px 3px 7px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.chip-record {
+  border: 1px solid var(--line-strong);
+  color: var(--ink-muted);
+  background: var(--surface);
+}
+
+.chip-record::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  background: var(--ink-faint);
+  flex: none;
+}
+
+.chip-model {
+  border: 1px dashed var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+.chip-model::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent);
+  flex: none;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 12px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
