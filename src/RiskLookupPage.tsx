@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import { fetchAccusedRiskProfile } from "./api/investigationClient";
+import { fetchAccusedRiskProfile } from "./api/apiGatewayClient";
 import type { AccusedRiskProfile } from "./api/accusedRiskProfile";
 import { DEMO_ACCUSED, filterAccusedOptions, type AccusedOption } from "./lib/demoAccused";
 import {

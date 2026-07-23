@@ -1,9 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  /** API Gateway base URL (no trailing slash). Browser → Gateway only (C8). */
   readonly VITE_API_GATEWAY_URL: string;
-  /** Investigation Service base URL (no trailing slash). Local C1 default: http://localhost:8080 */
-  readonly VITE_INVESTIGATION_SERVICE_URL: string;
 }
 
 interface ImportMeta {
