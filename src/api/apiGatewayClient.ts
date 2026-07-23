@@ -2,7 +2,8 @@ import type { AccusedRiskProfile } from "./accusedRiskProfile";
 
 /**
  * Browser talks to the API Gateway only (Design & Schema §3.2 / §6.1; C8).
- * CORS is owned by the Gateway — do not point this client at Investigation/Analytics.
+ * - DEV: same-origin `/v1/...` via Vite proxy → Gateway (avoids localhost vs 127.0.0.1 CORS).
+ * - PROD/Slate: absolute `VITE_API_GATEWAY_URL` (Gateway owns CORS).
  */
 export function apiGatewayBaseUrl(): string {
   const configured = import.meta.env.VITE_API_GATEWAY_URL?.trim();
@@ -10,6 +11,9 @@ export function apiGatewayBaseUrl(): string {
     throw new Error(
       "VITE_API_GATEWAY_URL is not set — see .env.example. Refusing to fall back.",
     );
+  }
+  if (import.meta.env.DEV) {
+    return "";
   }
   return configured.replace(/\/$/, "");
 }
@@ -24,18 +28,19 @@ export async function fetchAccusedRiskProfile(
   }
 
   const base = apiGatewayBaseUrl();
-  const res = await fetch(`${base}/v1/accusedPersons/${encodeURIComponent(id)}:riskProfile`, {
+  const url = `${base}/v1/accusedPersons/${encodeURIComponent(id)}:riskProfile`;
+  const res = await fetch(url, {
     headers: { Accept: "application/json" },
     signal,
   });
 
   if (res.status === 404) {
-    throw new Error(`No risk profile for accusedId=${id}`);
+    throw new Error(`No risk profile for accusedId=${id} (GET ${url})`);
   }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(
-      `Risk profile request failed: ${res.status} ${res.statusText}${text ? ` — ${text}` : ""}`,
+      `Risk profile request failed: ${res.status} ${res.statusText} (GET ${url})${text ? ` — ${text}` : ""}`,
     );
   }
 
