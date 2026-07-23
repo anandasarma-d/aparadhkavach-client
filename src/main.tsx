@@ -1,10 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import { DeployPathCheck } from "./DeployPathCheck";
+import { RiskLookupPage } from "./RiskLookupPage";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <DeployPathCheck />
+    <RiskLookupPage />
   </StrictMode>,
 );
