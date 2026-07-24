@@ -274,10 +274,8 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
             </tbody>
           </table>
           <p className="mt-4 text-[12px] leading-relaxed text-[var(--ink-faint)]">
-            Linked FIR history and feature-engineered fields beyond this composition are not
-            returned by{" "}
-            <span className="font-[family-name:var(--font-mono)]">:riskProfile</span> — only
-            DataStore accused fields plus the Analytics risk score join.
+            Linked FIR history is not listed here — this panel shows the accused&apos;s stored
+            record fields only. Model inputs for the score appear under Case drivers.
           </p>
         </div>
       </article>
@@ -291,13 +289,12 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
           <div className="flex items-center gap-[18px] pb-5 pt-1.5">
             <RiskDial score={score} band={band} />
             <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-              Score is the QuickML repeat-offender estimate (0–100) for this accused, joined from{" "}
-              <span className="font-[family-name:var(--font-mono)]">risk_scores</span>.{" "}
+              Score is the QuickML repeat-offender estimate (0–100) for this accused.{" "}
               {hasFeatureImportance
-                ? "Factors below are the top-3 feature importances returned with the score."
+                ? "Factors below are the top-3 contributions returned with the score."
                 : hasDrivers
-                  ? "The model inputs used for this accused are shown below; QuickML did not return per-score attribution."
-                  : "QuickML did not return per-score feature attribution for this score."}
+                  ? "The model inputs used for this accused are shown below; how much each moved this particular score was not returned."
+                  : "How much each factor moved this particular score was not returned with the prediction."}
             </p>
           </div>
 
@@ -351,9 +348,8 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
                 <span className="chip-input">MODEL INPUT</span>
               </div>
               <p className="mb-1 text-[12px] leading-relaxed text-[var(--ink-muted)]">
-                Real Section 7.5.1 features fed to QuickML for this accused, derived from FIR and
-                network records. These are the model&apos;s <strong>inputs</strong> — not per-score
-                attribution, and not live SHAP.
+                Values QuickML used as <strong>inputs</strong> for this accused, derived from their
+                FIR and network history — not an explanation of how much each moved this score.
               </p>
               <table className="w-full border-collapse text-[13.5px]">
                 <tbody>
@@ -379,11 +375,13 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
                 role="status"
               >
                 <p className="text-xs leading-relaxed text-[var(--ink-muted)]">
-                  <strong className="text-[var(--ink)]">Per-score attribution unavailable.</strong>{" "}
-                  QuickML predict did not return how much each driver moved <em>this</em> score, so
-                  none is inferred or presented as SHAP. Across the trained model, the strongest
-                  overall drivers are {TRAINING_TOP_DRIVERS.join(", ")} — training-level importance,
-                  not this record&apos;s attribution.
+                  <strong className="text-[var(--ink)]">
+                    Why this score is not broken down by weight.
+                  </strong>{" "}
+                  The prediction did not say how much each driver moved <em>this</em> score, so no
+                  weights are invented here. Across the trained model, the strongest overall drivers
+                  are {TRAINING_TOP_DRIVERS.join(", ")} — that is model-wide ranking, not this
+                  record&apos;s breakdown.
                 </p>
               </div>
             </>
@@ -401,9 +399,8 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
                   Feature attribution unavailable
                 </p>
                 <p className="mt-1 text-xs leading-relaxed text-[var(--ink-muted)]">
-                  QuickML returned the risk score without per-score feature attribution, and no
-                  model inputs were available for this accused. No factors are inferred,
-                  substituted, or presented as live SHAP values.
+                  The prediction returned a score without a factor breakdown, and no model inputs
+                  were available for this accused. No factor weights are invented here.
                 </p>
               </div>
             </>
@@ -424,7 +421,7 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
             .{" "}
             {hasFeatureImportance
               ? "Feature weights are this record’s contribution to the score, not fixed rules."
-              : "Per-score feature attribution was not supplied by QuickML."}
+              : "A factor-by-factor weight breakdown was not supplied with this score."}
           </div>
         </div>
       </article>
