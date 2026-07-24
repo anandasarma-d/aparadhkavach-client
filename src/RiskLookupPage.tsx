@@ -12,7 +12,12 @@ import {
 
 const DIAL_CIRCUMFERENCE = 2 * Math.PI * 44;
 
-export function RiskLookupPage() {
+type RiskLookupPageProps = {
+  /** When true, App shell owns the top chrome — skip duplicate header. */
+  embedded?: boolean;
+};
+
+export function RiskLookupPage({ embedded = false }: RiskLookupPageProps) {
   const listboxId = useId();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -100,15 +105,17 @@ export function RiskLookupPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--surface-2)] px-7 py-2.5 text-xs text-[var(--ink-muted)]">
-        <span className="font-[family-name:var(--font-mono)] tracking-wide">
-          AparadhKavach · Repeat-Offender Risk Lookup
-        </span>
-        <span className="font-[family-name:var(--font-mono)] text-[var(--ink-faint)]">
-          Demo role: INVESTIGATOR
-        </span>
-      </div>
+    <div className={embedded ? "text-[var(--ink)]" : "min-h-screen bg-[var(--paper)] text-[var(--ink)]"}>
+      {!embedded && (
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--surface-2)] px-7 py-2.5 text-xs text-[var(--ink-muted)]">
+          <span className="font-[family-name:var(--font-mono)] tracking-wide">
+            AparadhKavach · Repeat-Offender Risk Lookup
+          </span>
+          <span className="font-[family-name:var(--font-mono)] text-[var(--ink-faint)]">
+            Demo role: INVESTIGATOR
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-5 border-b border-[var(--line)] bg-[var(--paper)] px-7 py-3.5 text-[12.5px] text-[var(--ink-muted)]">
         <span>
