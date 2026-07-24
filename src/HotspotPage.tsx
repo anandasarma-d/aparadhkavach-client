@@ -114,71 +114,73 @@ export function HotspotPage() {
       )}
 
       {!loading && !error && rows.length > 0 && (
-        <div className="overflow-x-auto rounded border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
-          <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-[var(--surface-2)] text-[11px] uppercase tracking-wide text-[var(--ink-muted)]">
-                <th className="px-4 py-3 font-semibold">
-                  <button type="button" className="hover:text-[var(--ink)]" onClick={() => toggleSort("district")}>
-                    District{sortMark("district")}
-                  </button>
-                </th>
-                <th className="px-4 py-3 font-semibold">
-                  <button type="button" className="hover:text-[var(--ink)]" onClick={() => toggleSort("crimeType")}>
-                    Crime type{sortMark("crimeType")}
-                  </button>
-                </th>
-                <th className="px-4 py-3 font-semibold">
-                  <button
-                    type="button"
-                    className="hover:text-[var(--ink)]"
-                    onClick={() => toggleSort("forecastWindow")}
-                  >
-                    Window{sortMark("forecastWindow")}
-                  </button>
-                </th>
-                <th className="px-4 py-3 font-semibold">
-                  <button
-                    type="button"
-                    className="hover:text-[var(--ink)]"
-                    onClick={() => toggleSort("hotspotScore")}
-                  >
-                    Score{sortMark("hotspotScore")}
-                  </button>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((row) => {
-                const band = scoreBand(row.hotspotScore);
-                const bandColor =
-                  band === "high"
-                    ? "text-[var(--risk-high)]"
-                    : band === "moderate"
-                      ? "text-[var(--risk-moderate)]"
-                      : "text-[var(--risk-low)]";
-                return (
-                  <tr
-                    key={row.forecastId}
-                    className="border-b border-[var(--line)] last:border-0 hover:bg-[var(--accent-soft)]/40"
-                  >
-                    <td className="px-4 py-3 font-medium text-[var(--ink)]">
-                      {districtDisplayName(row.districtId)}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--ink-muted)]">{row.crimeType}</td>
-                    <td className="px-4 py-3 font-[family-name:var(--font-mono)] text-[var(--ink-muted)]">
-                      {row.forecastWindow}
-                    </td>
-                    <td
-                      className={`px-4 py-3 font-[family-name:var(--font-mono)] font-semibold tabular-nums ${bandColor}`}
+        <div className="rounded border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow)]">
+          <div className="max-h-[min(28rem,calc(100vh-14rem))] overflow-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b border-[var(--line)] bg-[var(--surface-2)] text-[11px] uppercase tracking-wide text-[var(--ink-muted)]">
+                  <th className="px-4 py-3 font-semibold">
+                    <button type="button" className="hover:text-[var(--ink)]" onClick={() => toggleSort("district")}>
+                      District{sortMark("district")}
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 font-semibold">
+                    <button type="button" className="hover:text-[var(--ink)]" onClick={() => toggleSort("crimeType")}>
+                      Crime type{sortMark("crimeType")}
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 font-semibold">
+                    <button
+                      type="button"
+                      className="hover:text-[var(--ink)]"
+                      onClick={() => toggleSort("forecastWindow")}
                     >
-                      {row.hotspotScore.toFixed(2)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      Window{sortMark("forecastWindow")}
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 font-semibold">
+                    <button
+                      type="button"
+                      className="hover:text-[var(--ink)]"
+                      onClick={() => toggleSort("hotspotScore")}
+                    >
+                      Score{sortMark("hotspotScore")}
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((row) => {
+                  const band = scoreBand(row.hotspotScore);
+                  const bandColor =
+                    band === "high"
+                      ? "text-[var(--risk-high)]"
+                      : band === "moderate"
+                        ? "text-[var(--risk-moderate)]"
+                        : "text-[var(--risk-low)]";
+                  return (
+                    <tr
+                      key={row.forecastId}
+                      className="border-b border-[var(--line)] last:border-0 hover:bg-[var(--accent-soft)]/40"
+                    >
+                      <td className="px-4 py-3 font-medium text-[var(--ink)]">
+                        {districtDisplayName(row.districtId)}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--ink-muted)]">{row.crimeType}</td>
+                      <td className="px-4 py-3 font-[family-name:var(--font-mono)] text-[var(--ink-muted)]">
+                        {row.forecastWindow}
+                      </td>
+                      <td
+                        className={`px-4 py-3 font-[family-name:var(--font-mono)] font-semibold tabular-nums ${bandColor}`}
+                      >
+                        {row.hotspotScore.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           <p className="border-t border-[var(--line)] px-4 py-2.5 text-[11px] text-[var(--ink-faint)]">
             {rows.length} forecast{rows.length === 1 ? "" : "s"} · score ≥ 0.70 ≈ alert threshold
             · pipeline from first row:{" "}
