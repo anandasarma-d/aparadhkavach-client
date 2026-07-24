@@ -129,7 +129,8 @@ body {
 }
 
 .chip-record,
-.chip-model {
+.chip-model,
+.chip-input {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -166,6 +167,22 @@ body {
   height: 7px;
   border-radius: 50%;
   border: 1.5px solid var(--accent);
+  flex: none;
+}
+
+/* MODEL INPUT — engineered features fed into QuickML (inputs, not attribution). */
+.chip-input {
+  border: 1px solid var(--accent);
+  color: var(--accent-ink);
+  background: var(--surface);
+}
+
+.chip-input::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--accent);
+  transform: rotate(45deg);
   flex: none;
 }
 

@@ -3,10 +3,12 @@ import { fetchAccusedRiskProfile } from "./api/apiGatewayClient";
 import type { AccusedRiskProfile } from "./api/accusedRiskProfile";
 import { DEMO_ACCUSED, filterAccusedOptions, type AccusedOption } from "./lib/demoAccused";
 import {
+  caseDriverRows,
   featureLabel,
   riskBand,
   riskBandLabel,
   topFeatures,
+  TRAINING_TOP_DRIVERS,
   type RiskBand,
 } from "./lib/riskFeatures";
 
@@ -236,6 +238,9 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
   const factors = topFeatures(profile.topFeatureImportance, 3);
   const hasFeatureImportance = factors.length > 0;
   const maxAbs = Math.max(...factors.map((f) => Math.abs(f.weight)), 0.0001);
+  const drivers = profile.caseDrivers;
+  const hasDrivers = drivers != null;
+  const driverRows = hasDrivers ? caseDriverRows(drivers) : [];
 
   return (
     <div className="grid grid-cols-1 gap-[22px] md:grid-cols-[1.55fr_1fr]">
@@ -290,56 +295,119 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
               <span className="font-[family-name:var(--font-mono)]">risk_scores</span>.{" "}
               {hasFeatureImportance
                 ? "Factors below are the top-3 feature importances returned with the score."
-                : "The prediction endpoint did not provide per-score feature importance."}
+                : hasDrivers
+                  ? "The model inputs used for this accused are shown below; QuickML did not return per-score attribution."
+                  : "QuickML did not return per-score feature attribution for this score."}
             </p>
           </div>
 
-          <p className="section-label">Top contributing factors</p>
-          {!hasFeatureImportance && (
-            <div
-              className="rounded border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-3.5 py-3"
-              role="status"
-            >
-              <p className="text-[13.5px] font-semibold text-[var(--ink)]">
-                Feature importance unavailable
-              </p>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--ink-muted)]">
-                QuickML returned the risk score without per-score feature attribution. No factors
-                are inferred, substituted, or presented as live SHAP values.
-              </p>
-            </div>
-          )}
-          {factors.map((factor) => {
-            const pct = Math.round((Math.abs(factor.weight) / maxAbs) * 100);
-            const weightPct = `${(Math.abs(factor.weight) * 100).toFixed(0)}%`;
-            return (
-              <div
-                key={factor.key}
-                className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 border-t border-[var(--line)] py-3"
-              >
-                <span className="text-[13.5px] text-[var(--ink)]">{featureLabel(factor.key)}</span>
-                <span className="font-[family-name:var(--font-mono)] text-[12.5px] tabular-nums text-[var(--accent-ink)]">
-                  {weightPct}
-                </span>
-                <div className="col-span-2 h-1.5 overflow-hidden rounded-sm bg-[var(--surface-2)]">
+          {/* Dormant branch: renders only if QuickML ever returns real per-score importances. */}
+          {hasFeatureImportance && (
+            <>
+              <p className="section-label">Top contributing factors</p>
+              {factors.map((factor) => {
+                const pct = Math.round((Math.abs(factor.weight) / maxAbs) * 100);
+                const weightPct = `${(Math.abs(factor.weight) * 100).toFixed(0)}%`;
+                return (
                   <div
-                    className="h-full rounded-sm bg-[var(--accent)]"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                <div className="col-span-2 mt-1 text-xs text-[var(--ink-muted)]">
-                  <span className="chip-model mr-1.5 scale-[0.92] origin-left">MODEL ESTIMATE</span>
-                  Feature key{" "}
-                  <span className="font-[family-name:var(--font-mono)]">{factor.key}</span>
-                  {" · "}
-                  raw weight{" "}
-                  <span className="font-[family-name:var(--font-mono)] tabular-nums">
-                    {factor.weight.toFixed(3)}
-                  </span>
-                </div>
+                    key={factor.key}
+                    className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 border-t border-[var(--line)] py-3"
+                  >
+                    <span className="text-[13.5px] text-[var(--ink)]">
+                      {featureLabel(factor.key)}
+                    </span>
+                    <span className="font-[family-name:var(--font-mono)] text-[12.5px] tabular-nums text-[var(--accent-ink)]">
+                      {weightPct}
+                    </span>
+                    <div className="col-span-2 h-1.5 overflow-hidden rounded-sm bg-[var(--surface-2)]">
+                      <div
+                        className="h-full rounded-sm bg-[var(--accent)]"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <div className="col-span-2 mt-1 text-xs text-[var(--ink-muted)]">
+                      <span className="chip-model mr-1.5 scale-[0.92] origin-left">
+                        MODEL ESTIMATE
+                      </span>
+                      Feature key{" "}
+                      <span className="font-[family-name:var(--font-mono)]">{factor.key}</span>
+                      {" · "}
+                      raw weight{" "}
+                      <span className="font-[family-name:var(--font-mono)] tabular-nums">
+                        {factor.weight.toFixed(3)}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          )}
+
+          {/* Primary MVP-1 path: real per-accused model inputs (A7 3-Full). */}
+          {!hasFeatureImportance && hasDrivers && (
+            <>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="section-label !mb-0">Case drivers</p>
+                <span className="chip-input">MODEL INPUT</span>
               </div>
-            );
-          })}
+              <p className="mb-1 text-[12px] leading-relaxed text-[var(--ink-muted)]">
+                Real Section 7.5.1 features fed to QuickML for this accused, derived from FIR and
+                network records. These are the model&apos;s <strong>inputs</strong> — not per-score
+                attribution, and not live SHAP.
+              </p>
+              <table className="w-full border-collapse text-[13.5px]">
+                <tbody>
+                  {driverRows.map((row) => (
+                    <tr key={row.key} className="border-t border-[var(--line)]">
+                      <td className="w-[56%] py-2.5 pr-1 align-top text-[var(--ink-muted)]">
+                        {row.label}
+                        {row.note && (
+                          <span className="mt-0.5 block text-[11px] text-[var(--ink-faint)]">
+                            {row.note}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2.5 text-right align-top font-[family-name:var(--font-mono)] tabular-nums text-[var(--ink)]">
+                        {row.value}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div
+                className="mt-3 rounded border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-3.5 py-3"
+                role="status"
+              >
+                <p className="text-xs leading-relaxed text-[var(--ink-muted)]">
+                  <strong className="text-[var(--ink)]">Per-score attribution unavailable.</strong>{" "}
+                  QuickML predict did not return how much each driver moved <em>this</em> score, so
+                  none is inferred or presented as SHAP. Across the trained model, the strongest
+                  overall drivers are {TRAINING_TOP_DRIVERS.join(", ")} — training-level importance,
+                  not this record&apos;s attribution.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Fallback: no drivers and no importance (e.g. accused_features not yet imported). */}
+          {!hasFeatureImportance && !hasDrivers && (
+            <>
+              <p className="section-label">Top contributing factors</p>
+              <div
+                className="rounded border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-3.5 py-3"
+                role="status"
+              >
+                <p className="text-[13.5px] font-semibold text-[var(--ink)]">
+                  Feature attribution unavailable
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-[var(--ink-muted)]">
+                  QuickML returned the risk score without per-score feature attribution, and no
+                  model inputs were available for this accused. No factors are inferred,
+                  substituted, or presented as live SHAP values.
+                </p>
+              </div>
+            </>
+          )}
 
           <div className="mt-[18px] rounded border border-dashed border-[var(--accent)] bg-[var(--accent-soft)] px-3.5 py-3 text-xs leading-relaxed text-[var(--accent-ink)]">
             <span className="chip-model mr-1">MODEL ESTIMATE</span>
