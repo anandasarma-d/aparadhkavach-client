@@ -20,10 +20,7 @@ export async function fetchHotspots(
   });
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(
-      `Hotspots request failed: ${res.status} ${res.statusText} (GET ${url})${text ? ` — ${text}` : ""}`,
-    );
+    throw new Error(`Could not load hotspots (${res.status}).`);
   }
 
   return (await res.json()) as HotspotsPage;

@@ -35,12 +35,11 @@ export async function fetchAccusedRiskProfile(
   });
 
   if (res.status === 404) {
-    throw new Error(`No risk profile for accusedId=${id} (GET ${url})`);
+    throw new Error(`No risk profile for accusedId=${id}`);
   }
   if (!res.ok) {
-    const text = await res.text();
     throw new Error(
-      `Risk profile request failed: ${res.status} ${res.statusText} (GET ${url})${text ? ` — ${text}` : ""}`,
+      `Could not load risk profile for accusedId=${id} (${res.status}).`,
     );
   }
 
