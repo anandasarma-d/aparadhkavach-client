@@ -119,15 +119,15 @@ export function RiskLookupPage({ embedded = false }: RiskLookupPageProps) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-5 border-b border-[var(--line)] bg-[var(--paper)] px-7 py-3.5 text-[12.5px] text-[var(--ink-muted)]">
+      <div className="flex flex-nowrap items-center gap-5 overflow-x-auto border-b border-[var(--line)] bg-[var(--paper)] px-7 py-3.5 text-[12.5px] text-[var(--ink-muted)] whitespace-nowrap">
         <span>
           <strong className="font-semibold text-[var(--ink)]">Evidence vs. inference —</strong>{" "}
           every value is marked by source:
         </span>
         <span className="chip-record">RECORD</span>
-        <span className="max-w-[260px]">read from the accused DataStore record</span>
+        <span>read from the accused DataStore record</span>
         <span className="chip-model">MODEL ESTIMATE</span>
-        <span className="max-w-[280px]">computed by QuickML — never shown unlabeled</span>
+        <span>computed by QuickML — always labelled as an estimate</span>
       </div>
 
       <section className="mx-auto max-w-[1180px] px-7 pb-16 pt-9">
