@@ -1,10 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import { RiskLookupPage } from "./RiskLookupPage";
+import { App } from "./App";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <RiskLookupPage />
+    <App />
   </StrictMode>,
 );
