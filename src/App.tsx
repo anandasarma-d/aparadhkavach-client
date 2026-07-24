@@ -12,12 +12,12 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--surface-2)] px-7 py-2.5 text-xs text-[var(--ink-muted)]">
-        <span className="flex items-center gap-2 font-[family-name:var(--font-mono)] tracking-wide">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--surface-2)] px-7 py-2 text-xs text-[var(--ink-muted)]">
+        <span className="flex items-center gap-3 font-[family-name:var(--font-mono)] text-sm tracking-wide">
           <img
             src="/aparadhkavach-logo.png"
             alt="AparadhKavach logo"
-            className="h-6 w-6 shrink-0"
+            className="h-10 w-10 shrink-0"
           />
           AparadhKavach · MVP-1
         </span>
