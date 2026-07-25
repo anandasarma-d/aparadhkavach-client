@@ -3,16 +3,35 @@ import { HotspotPage } from "./HotspotPage";
 import { NetworkPage } from "./NetworkPage";
 import { RiskLookupPage } from "./RiskLookupPage";
 import { SimilarCasesPage } from "./SimilarCasesPage";
-
-type AppView = "risk" | "hotspots" | "network" | "similar";
+import {
+  DEFAULT_ROLE,
+  DEMO_ROLES,
+  ROLE_HOME,
+  ROLE_LABELS,
+  VIEW_LABELS,
+  canSee,
+  visibleViews,
+  type AppView,
+  type DemoRole,
+} from "./rbac/demoRoleMatrix";
 
 /**
  * Minimal F1 ↔ F2 ↔ K2 ↔ similar-cases switch — not a full dashboard shell (A6/A10/A12).
+ * Demo RBAC stub (Auto/21 Approach A): a role switcher gates which tabs / cross-links
+ * are visible. Capability gating only — not auth, not data-row scoping.
  */
 export function App() {
-  const [view, setView] = useState<AppView>("risk");
+  const [role, setRole] = useState<DemoRole>(DEFAULT_ROLE);
+  const [view, setView] = useState<AppView>(ROLE_HOME[DEFAULT_ROLE]);
   const [networkEntityId, setNetworkEntityId] = useState<string | null>(null);
   const [similarFirId, setSimilarFirId] = useState<string | null>(null);
+
+  const tabs = visibleViews(role);
+
+  function changeRole(next: DemoRole) {
+    setRole(next);
+    setView(ROLE_HOME[next]);
+  }
 
   function showNetworkFor(accusedId: string) {
     setNetworkEntityId(accusedId);
@@ -36,28 +55,46 @@ export function App() {
           AparadhKavach · MVP-1
         </span>
         <nav className="flex items-center gap-1" aria-label="Primary">
-          <NavButton active={view === "risk"} onClick={() => setView("risk")}>
-            Risk lookup
-          </NavButton>
-          <NavButton active={view === "hotspots"} onClick={() => setView("hotspots")}>
-            Hotspots
-          </NavButton>
-          <NavButton active={view === "network"} onClick={() => setView("network")}>
-            Network
-          </NavButton>
-          <NavButton active={view === "similar"} onClick={() => setView("similar")}>
-            Similar cases
-          </NavButton>
+          {tabs.map((v) => (
+            <NavButton key={v} active={view === v} onClick={() => setView(v)}>
+              {VIEW_LABELS[v]}
+            </NavButton>
+          ))}
         </nav>
-        <span className="font-[family-name:var(--font-mono)] text-[var(--ink-faint)]">
-          Demo role: INVESTIGATOR
-        </span>
+        <div className="flex flex-col items-end gap-0.5">
+          <label className="flex items-center gap-2 font-[family-name:var(--font-mono)] text-[var(--ink-muted)]">
+            <span className="text-[var(--ink-faint)]">Signed in as</span>
+            <select
+              value={role}
+              onChange={(e) => changeRole(e.target.value as DemoRole)}
+              aria-label="Demo role"
+              className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
+            >
+              {DEMO_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <span className="text-[10.5px] text-[var(--ink-faint)]">
+            Demo RBAC stub — navigation by role; not Catalyst Auth / JWT yet
+          </span>
+        </div>
       </div>
 
-      {view === "risk" && <RiskLookupPage embedded onShowNetwork={showNetworkFor} />}
+      {view === "risk" && (
+        <RiskLookupPage
+          embedded
+          onShowNetwork={canSee(role, "network") ? showNetworkFor : undefined}
+        />
+      )}
       {view === "hotspots" && <HotspotPage />}
       {view === "network" && (
-        <NetworkPage initialEntityId={networkEntityId} onShowSimilar={showSimilarFor} />
+        <NetworkPage
+          initialEntityId={networkEntityId}
+          onShowSimilar={canSee(role, "similar") ? showSimilarFor : undefined}
+        />
       )}
       {view === "similar" && <SimilarCasesPage initialFirId={similarFirId} />}
     </div>
