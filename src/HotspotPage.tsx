@@ -73,7 +73,19 @@ export function HotspotPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-7 py-8">
+    <div className="text-[var(--ink)]">
+      <div className="flex flex-nowrap items-center gap-6 overflow-x-auto border-b border-[var(--line)] bg-[var(--paper)] px-7 py-3.5 text-[12.5px] text-[var(--ink-muted)] whitespace-nowrap">
+        <span>
+          <strong className="font-semibold text-[var(--ink)]">Forecast scores —</strong>{" "}
+          every value is a model output:
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="chip-model">MODEL ESTIMATE</span>
+          <span>QuickML hotspot forecast via Catalyst DataStore</span>
+        </span>
+      </div>
+
+      <div className="mx-auto max-w-6xl px-7 py-8">
       <header className="mb-8 max-w-2xl">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
           Feature 2 — C3/C4
@@ -188,6 +200,7 @@ export function HotspotPage() {
           </p>
         </div>
       )}
+      </div>
     </div>
   );
 }
