@@ -111,12 +111,9 @@ export function RiskLookupPage({ embedded = false, onShowNetwork }: RiskLookupPa
   return (
     <div className={embedded ? "text-[var(--ink)]" : "min-h-screen bg-[var(--paper)] text-[var(--ink)]"}>
       {!embedded && (
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--line)] bg-[var(--surface-2)] px-7 py-2.5 text-xs text-[var(--ink-muted)]">
+        <div className="border-b border-[var(--line)] bg-[var(--surface-2)] px-7 py-2.5 text-xs text-[var(--ink-muted)]">
           <span className="font-[family-name:var(--font-mono)] tracking-wide">
             AparadhKavach · Repeat-Offender Risk Lookup
-          </span>
-          <span className="font-[family-name:var(--font-mono)] text-[var(--ink-faint)]">
-            Demo role: INVESTIGATOR
           </span>
         </div>
       )}
