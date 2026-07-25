@@ -178,12 +178,12 @@ body {
   letter-spacing: 0.03em;
 }
 
-/* Same soft-chip weight for both; solid vs dashed + marker shape keep the
-   evidence-vs-inference cue without mismatched white vs teal fills. */
+/* Same white fill + padding for both chips; solid vs dashed + marker shape
+   keep the evidence-vs-inference cue without mismatched backgrounds. */
 .chip-record {
   border: 1px solid var(--line-strong);
   color: var(--ink-muted);
-  background: var(--surface-2);
+  background: var(--surface);
 }
 
 .chip-record::before {
@@ -197,7 +197,7 @@ body {
 .chip-model {
   border: 1px dashed var(--accent);
   color: var(--accent-ink);
-  background: var(--accent-soft);
+  background: var(--surface);
 }
 
 .chip-model::before {
