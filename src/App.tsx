@@ -1,14 +1,21 @@
 import { useState, type ReactNode } from "react";
 import { HotspotPage } from "./HotspotPage";
+import { NetworkPage } from "./NetworkPage";
 import { RiskLookupPage } from "./RiskLookupPage";
 
-type AppView = "risk" | "hotspots";
+type AppView = "risk" | "hotspots" | "network";
 
 /**
- * Minimal F1 ↔ F2 switch — not a full dashboard shell (A6).
+ * Minimal F1 ↔ F2 ↔ K2 switch — not a full dashboard shell (A6/A10).
  */
 export function App() {
   const [view, setView] = useState<AppView>("risk");
+  const [networkEntityId, setNetworkEntityId] = useState<string | null>(null);
+
+  function showNetworkFor(accusedId: string) {
+    setNetworkEntityId(accusedId);
+    setView("network");
+  }
 
   return (
     <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
@@ -28,13 +35,18 @@ export function App() {
           <NavButton active={view === "hotspots"} onClick={() => setView("hotspots")}>
             Hotspots
           </NavButton>
+          <NavButton active={view === "network"} onClick={() => setView("network")}>
+            Network
+          </NavButton>
         </nav>
         <span className="font-[family-name:var(--font-mono)] text-[var(--ink-faint)]">
           Demo role: INVESTIGATOR
         </span>
       </div>
 
-      {view === "risk" ? <RiskLookupPage embedded /> : <HotspotPage />}
+      {view === "risk" && <RiskLookupPage embedded onShowNetwork={showNetworkFor} />}
+      {view === "hotspots" && <HotspotPage />}
+      {view === "network" && <NetworkPage initialEntityId={networkEntityId} />}
     </div>
   );
 }
