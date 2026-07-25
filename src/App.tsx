@@ -1,13 +1,13 @@
 import { useState, type ReactNode } from "react";
 import { HotspotPage } from "./HotspotPage";
+import { LoginPage } from "./LoginPage";
 import { NetworkPage } from "./NetworkPage";
 import { RiskLookupPage } from "./RiskLookupPage";
 import { SimilarCasesPage } from "./SimilarCasesPage";
+import { RoleMenu } from "./rbac/RoleMenu";
 import {
   DEFAULT_ROLE,
-  DEMO_ROLES,
   ROLE_HOME,
-  ROLE_LABELS,
   VIEW_LABELS,
   canSee,
   visibleViews,
@@ -17,16 +17,23 @@ import {
 
 /**
  * Minimal F1 ↔ F2 ↔ K2 ↔ similar-cases switch — not a full dashboard shell (A6/A10/A12).
- * Demo RBAC stub (Auto/21 Approach A): a role switcher gates which tabs / cross-links
- * are visible. Capability gating only — not auth, not data-row scoping.
+ * Demo RBAC stub (Auto/21 Approach A): Sign-In gate + role switcher gate which tabs /
+ * cross-links are visible. Capability gating only — not auth, not data-row scoping.
  */
 export function App() {
+  const [signedIn, setSignedIn] = useState(false);
   const [role, setRole] = useState<DemoRole>(DEFAULT_ROLE);
   const [view, setView] = useState<AppView>(ROLE_HOME[DEFAULT_ROLE]);
   const [networkEntityId, setNetworkEntityId] = useState<string | null>(null);
   const [similarFirId, setSimilarFirId] = useState<string | null>(null);
 
   const tabs = visibleViews(role);
+
+  function signIn(next: DemoRole) {
+    setRole(next);
+    setView(ROLE_HOME[next]);
+    setSignedIn(true);
+  }
 
   function changeRole(next: DemoRole) {
     setRole(next);
@@ -41,6 +48,10 @@ export function App() {
   function showSimilarFor(firId: string) {
     setSimilarFirId(firId);
     setView("similar");
+  }
+
+  if (!signedIn) {
+    return <LoginPage onSignIn={signIn} />;
   }
 
   return (
@@ -62,21 +73,7 @@ export function App() {
           ))}
         </nav>
         <div className="flex flex-col items-end gap-0.5">
-          <label className="flex items-center gap-2 font-[family-name:var(--font-mono)] text-[var(--ink-muted)]">
-            <span className="text-[var(--ink-faint)]">Signed in as</span>
-            <select
-              value={role}
-              onChange={(e) => changeRole(e.target.value as DemoRole)}
-              aria-label="Demo role"
-              className="rounded border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]"
-            >
-              {DEMO_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
-                </option>
-              ))}
-            </select>
-          </label>
+          <RoleMenu role={role} onChange={changeRole} />
           <span className="text-[10.5px] text-[var(--ink-faint)]">
             Demo RBAC stub — navigation by role; not Catalyst Auth / JWT yet
           </span>
