@@ -17,9 +17,11 @@ const NetworkCanvas = lazy(() =>
 type NetworkPageProps = {
   /** Entity to load on mount — set when arriving from Risk lookup. */
   initialEntityId?: string | null;
+  /** Cross-link into Similar cases for a FIR node (A12). */
+  onShowSimilar?: (firId: string) => void;
 };
 
-export function NetworkPage({ initialEntityId = null }: NetworkPageProps) {
+export function NetworkPage({ initialEntityId = null, onShowSimilar }: NetworkPageProps) {
   const [query, setQuery] = useState(initialEntityId ?? "");
   const [entityId, setEntityId] = useState<string | null>(initialEntityId);
   const [depth, setDepth] = useState(MIN_DEPTH);
@@ -178,7 +180,14 @@ export function NetworkPage({ initialEntityId = null }: NetworkPageProps) {
         </div>
       )}
 
-      {network && !loading && !error && <NetworkResult network={network} selectedId={selectedId} onSelect={setSelectedId} />}
+      {network && !loading && !error && (
+        <NetworkResult
+          network={network}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onShowSimilar={onShowSimilar}
+        />
+      )}
 
       {!entityId && !loading && (
         <p className="text-[13.5px] text-[var(--ink-faint)]">
@@ -189,14 +198,20 @@ export function NetworkPage({ initialEntityId = null }: NetworkPageProps) {
   );
 }
 
+function isFirNode(type: string): boolean {
+  return type.toUpperCase() === "FIR";
+}
+
 function NetworkResult({
   network,
   selectedId,
   onSelect,
+  onShowSimilar,
 }: {
   network: EntityNetwork;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  onShowSimilar?: (firId: string) => void;
 }) {
   const isEmpty = network.edges.length === 0;
   const types = useMemo(() => presentTypes(network.nodes), [network.nodes]);
@@ -275,6 +290,7 @@ function NetworkResult({
                   <th className="px-5 py-2.5 font-semibold">Id</th>
                   <th className="px-5 py-2.5 font-semibold">Type</th>
                   <th className="px-5 py-2.5 font-semibold">Label</th>
+                  {onShowSimilar && <th className="px-5 py-2.5 font-semibold" />}
                 </tr>
               </thead>
               <tbody>
@@ -300,6 +316,22 @@ function NetworkResult({
                       {entityTypeLabel(node.type)}
                     </td>
                     <td className="px-5 py-2.5 text-[var(--ink)]">{node.label}</td>
+                    {onShowSimilar && (
+                      <td className="px-5 py-2.5 text-right">
+                        {isFirNode(node.type) && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onShowSimilar(node.id);
+                            }}
+                            className="rounded px-2 py-1 text-[12px] font-semibold text-[var(--accent-ink)] hover:bg-[var(--accent-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                          >
+                            Find similar →
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

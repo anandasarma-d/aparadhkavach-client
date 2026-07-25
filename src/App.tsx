@@ -2,19 +2,26 @@ import { useState, type ReactNode } from "react";
 import { HotspotPage } from "./HotspotPage";
 import { NetworkPage } from "./NetworkPage";
 import { RiskLookupPage } from "./RiskLookupPage";
+import { SimilarCasesPage } from "./SimilarCasesPage";
 
-type AppView = "risk" | "hotspots" | "network";
+type AppView = "risk" | "hotspots" | "network" | "similar";
 
 /**
- * Minimal F1 ↔ F2 ↔ K2 switch — not a full dashboard shell (A6/A10).
+ * Minimal F1 ↔ F2 ↔ K2 ↔ similar-cases switch — not a full dashboard shell (A6/A10/A12).
  */
 export function App() {
   const [view, setView] = useState<AppView>("risk");
   const [networkEntityId, setNetworkEntityId] = useState<string | null>(null);
+  const [similarFirId, setSimilarFirId] = useState<string | null>(null);
 
   function showNetworkFor(accusedId: string) {
     setNetworkEntityId(accusedId);
     setView("network");
+  }
+
+  function showSimilarFor(firId: string) {
+    setSimilarFirId(firId);
+    setView("similar");
   }
 
   return (
@@ -38,6 +45,9 @@ export function App() {
           <NavButton active={view === "network"} onClick={() => setView("network")}>
             Network
           </NavButton>
+          <NavButton active={view === "similar"} onClick={() => setView("similar")}>
+            Similar cases
+          </NavButton>
         </nav>
         <span className="font-[family-name:var(--font-mono)] text-[var(--ink-faint)]">
           Demo role: INVESTIGATOR
@@ -46,7 +56,10 @@ export function App() {
 
       {view === "risk" && <RiskLookupPage embedded onShowNetwork={showNetworkFor} />}
       {view === "hotspots" && <HotspotPage />}
-      {view === "network" && <NetworkPage initialEntityId={networkEntityId} />}
+      {view === "network" && (
+        <NetworkPage initialEntityId={networkEntityId} onShowSimilar={showSimilarFor} />
+      )}
+      {view === "similar" && <SimilarCasesPage initialFirId={similarFirId} />}
     </div>
   );
 }
