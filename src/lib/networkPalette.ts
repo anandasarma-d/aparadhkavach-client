@@ -1,0 +1,69 @@
+/**
+ * Entity-type presentation for the K2 network view.
+ *
+ * vis-network draws on canvas and cannot read D1's CSS custom properties, so colors are
+ * resolved from the live stylesheet at render time (keeps light/dark parity).
+ */
+export const ENTITY_TYPE_LABELS: Record<string, string> = {
+  Accused: "Accused",
+  FIR: "FIR",
+  Victim: "Victim",
+  Witness: "Witness",
+  Location: "Location",
+  Vehicle: "Vehicle",
+  PhoneNumber: "Phone",
+  InvestigationOfficer: "Officer",
+  CrimeType: "Crime type",
+};
+
+/** Which D1 token paints each entity type. Unknown labels fall back to the neutral ink. */
+const TYPE_TOKEN: Record<string, string> = {
+  Accused: "--risk-high",
+  FIR: "--accent",
+  Victim: "--risk-moderate",
+  Witness: "--risk-moderate",
+  Location: "--risk-low",
+  Vehicle: "--ink-muted",
+  PhoneNumber: "--ink-muted",
+  InvestigationOfficer: "--accent-ink",
+  CrimeType: "--ink-faint",
+};
+
+export type D1Palette = {
+  color: (type: string) => string;
+  ink: string;
+  inkMuted: string;
+  surface: string;
+  line: string;
+  accent: string;
+};
+
+export function entityTypeLabel(type: string): string {
+  return ENTITY_TYPE_LABELS[type] ?? type;
+}
+
+/** Reads resolved D1 token values off :root so canvas colors track the active theme. */
+export function readD1Palette(element: HTMLElement): D1Palette {
+  const styles = getComputedStyle(element);
+  const token = (name: string, fallback: string) =>
+    styles.getPropertyValue(name).trim() || fallback;
+
+  const inkMuted = token("--ink-muted", "#56637a");
+  return {
+    color: (type: string) => token(TYPE_TOKEN[type] ?? "--ink-muted", inkMuted),
+    ink: token("--ink", "#182437"),
+    inkMuted,
+    surface: token("--surface", "#ffffff"),
+    line: token("--line-strong", "#c3c9cc"),
+    accent: token("--accent", "#2e6e75"),
+  };
+}
+
+/** Distinct entity types present, in first-seen order — drives the legend. */
+export function presentTypes(nodes: { type: string }[]): string[] {
+  const seen: string[] = [];
+  for (const node of nodes) {
+    if (!seen.includes(node.type)) seen.push(node.type);
+  }
+  return seen;
+}
