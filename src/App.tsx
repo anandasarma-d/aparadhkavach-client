@@ -4,10 +4,10 @@ import { LoginPage } from "./LoginPage";
 import { NetworkPage } from "./NetworkPage";
 import { RiskLookupPage } from "./RiskLookupPage";
 import { SimilarCasesPage } from "./SimilarCasesPage";
-import { RoleMenu } from "./rbac/RoleMenu";
 import {
   DEFAULT_ROLE,
   ROLE_HOME,
+  ROLE_LABELS,
   VIEW_LABELS,
   canSee,
   visibleViews,
@@ -17,8 +17,8 @@ import {
 
 /**
  * Minimal F1 ↔ F2 ↔ K2 ↔ similar-cases switch — not a full dashboard shell (A6/A10/A12).
- * Demo RBAC stub (Auto/21 Approach A): Sign-In gate + role switcher gate which tabs /
- * cross-links are visible. Capability gating only — not auth, not data-row scoping.
+ * Demo RBAC (Auto/21 Approach A): Sign-In gate picks a persona; Logout returns to the gate.
+ * Capability gating only — not Catalyst Auth / JWT.
  */
 export function App() {
   const [signedIn, setSignedIn] = useState(false);
@@ -32,12 +32,16 @@ export function App() {
   function signIn(next: DemoRole) {
     setRole(next);
     setView(ROLE_HOME[next]);
+    setNetworkEntityId(null);
+    setSimilarFirId(null);
     setSignedIn(true);
   }
 
-  function changeRole(next: DemoRole) {
-    setRole(next);
-    setView(ROLE_HOME[next]);
+  /** Demo logout — returns to Sign-In. No auth token / session store to clear. */
+  function logout() {
+    setSignedIn(false);
+    setNetworkEntityId(null);
+    setSimilarFirId(null);
   }
 
   function showNetworkFor(accusedId: string) {
@@ -72,11 +76,18 @@ export function App() {
             </NavButton>
           ))}
         </nav>
-        <div className="flex flex-col items-end gap-0.5">
-          <RoleMenu role={role} onChange={changeRole} />
-          <span className="text-[10.5px] text-[var(--ink-faint)]">
-            Demo RBAC stub — navigation by role; not Catalyst Auth / JWT yet
+        <div className="flex items-center gap-3">
+          <span className="font-[family-name:var(--font-mono)] text-[12.5px]">
+            <span className="text-[var(--ink-faint)]">Signed in as</span>{" "}
+            <span className="font-medium text-[var(--accent-ink)]">{ROLE_LABELS[role]}</span>
           </span>
+          <button
+            type="button"
+            onClick={logout}
+            className="rounded border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink-muted)] transition-colors hover:border-[var(--line-strong)] hover:text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          >
+            Logout
+          </button>
         </div>
       </div>
 
