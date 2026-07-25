@@ -8,31 +8,34 @@ import {
 type RoleMenuProps = {
   role: DemoRole;
   onChange: (next: DemoRole) => void;
-  /** Visible prefix before the role name. */
+  /** Visible prefix before the role name. Empty = role name only. */
   label?: string;
   /** Larger trigger for the Sign-In gate. */
   size?: "compact" | "comfortable";
   /** `ghost` = header control; `field` = bordered form control. */
   variant?: "ghost" | "field";
+  /** Optional id for the trigger button (pairs with an external <label>). */
+  id?: string;
   className?: string;
 };
 
 /**
- * Shared sleek role picker (demo RBAC stub). Used on the Sign-In gate and the
- * app header — not Catalyst Auth.
+ * Shared sleek role picker for the Sign-In gate (demo persona select).
  */
 export function RoleMenu({
   role,
   onChange,
-  label = "Signed in as",
+  label = "",
   size = "compact",
   variant = "ghost",
+  id,
   className = "",
 }: RoleMenuProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
   const comfortable = size === "comfortable";
+  const showLabel = label.trim().length > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -70,15 +73,16 @@ export function RoleMenu({
     <div ref={rootRef} className={`relative ${className}`}>
       <button
         type="button"
+        id={id}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}
-        aria-label={`${label} ${ROLE_LABELS[role]}`}
+        aria-label={showLabel ? `${label} ${ROLE_LABELS[role]}` : ROLE_LABELS[role]}
         onClick={() => setOpen((v) => !v)}
         className={open ? openClass : closedClass}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 text-[var(--ink-faint)]">{label}</span>
+          {showLabel && <span className="shrink-0 text-[var(--ink-faint)]">{label}</span>}
           <span className="truncate text-[var(--accent-ink)]">{ROLE_LABELS[role]}</span>
         </span>
         <ChevronDown open={open} />
@@ -88,7 +92,7 @@ export function RoleMenu({
         <ul
           id={listId}
           role="listbox"
-          aria-label={label}
+          aria-label={showLabel ? label : "Role"}
           className={`absolute left-0 right-0 z-20 mt-1.5 ${menuMin} overflow-hidden rounded-md border border-[var(--line)] bg-[var(--surface)] py-1 shadow-[var(--shadow)]`}
         >
           {DEMO_ROLES.map((r) => {

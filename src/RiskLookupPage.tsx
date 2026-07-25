@@ -118,16 +118,16 @@ export function RiskLookupPage({ embedded = false, onShowNetwork }: RiskLookupPa
         </div>
       )}
 
-      <div className="flex flex-nowrap items-center gap-6 overflow-x-auto border-b border-[var(--line)] bg-[var(--paper)] px-7 py-3.5 text-[12.5px] text-[var(--ink-muted)] whitespace-nowrap">
+      <div className="flex flex-nowrap items-center gap-5 overflow-x-auto border-b border-[var(--line)] bg-[var(--paper)] px-7 py-3 text-[12.5px] text-[var(--ink-muted)] whitespace-nowrap">
         <span>
           <strong className="font-semibold text-[var(--ink)]">Evidence vs. inference —</strong>{" "}
           every value is marked by source:
         </span>
-        <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1">
           <span className="chip-record">RECORD</span>
           <span>from the accused case record</span>
         </span>
-        <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1">
           <span className="chip-model">MODEL ESTIMATE</span>
           <span>computed by QuickML — always labelled as an estimate</span>
         </span>

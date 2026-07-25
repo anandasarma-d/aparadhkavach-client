@@ -7,13 +7,13 @@ type LoginPageProps = {
 };
 
 /**
- * Demo Sign-In gate (Approach A) — persona picker only. Not Catalyst Auth / JWT.
+ * Demo Sign-In gate (Approach A) — persona picker only.
  */
 export function LoginPage({ onSignIn }: LoginPageProps) {
   const [role, setRole] = useState<DemoRole>(DEFAULT_ROLE);
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--paper)] px-6 text-[var(--ink)]">
+    <div className="relative flex min-h-screen flex-col items-center justify-center bg-[var(--paper)] px-6 text-[var(--ink)]">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_20%,color-mix(in_srgb,var(--accent-soft)_70%,transparent),transparent_55%)]"
@@ -24,14 +24,14 @@ export function LoginPage({ onSignIn }: LoginPageProps) {
           <img
             src="/aparadhkavach-logo.png"
             alt="AparadhKavach logo"
-            className="mb-5 h-16 w-16"
+            className="mb-5 h-28 w-28"
           />
           <h1 className="font-[family-name:var(--font-display)] text-[2rem] font-normal tracking-tight text-[var(--ink)]">
             AparadhKavach
           </h1>
-          <p className="mt-2 max-w-[22rem] text-[14.5px] leading-relaxed text-[var(--ink-muted)]">
-            Decision support for Karnataka Police — risk lookup, hotspot forecasts,
-            criminal networks, and similar cases.
+          <p className="mt-2 max-w-[23rem] text-[14.5px] leading-relaxed text-[var(--ink-muted)]">
+            Crime Intelligence Platform for Karnataka Police — Support for risk
+            lookup, hotspot forecasts, criminal networks, and similar cases.
           </p>
         </div>
 
@@ -42,14 +42,19 @@ export function LoginPage({ onSignIn }: LoginPageProps) {
             onSignIn(role);
           }}
         >
-          <label className="mb-2 block font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.08em] text-[var(--ink-faint)]">
+          <label
+            htmlFor="sign-in-role"
+            className="mb-2 block font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.08em] text-[var(--ink-faint)]"
+          >
             Sign-In as
           </label>
           <RoleMenu
+            id="sign-in-role"
             role={role}
             onChange={setRole}
-            label="Sign-In as"
+            label=""
             size="comfortable"
+            variant="field"
             className="w-full"
           />
 
@@ -59,10 +64,6 @@ export function LoginPage({ onSignIn }: LoginPageProps) {
           >
             Continue
           </button>
-
-          <p className="mt-3 text-center text-[11px] leading-snug text-[var(--ink-faint)]">
-            Demo RBAC stub — chooses which surfaces you can open. Not Catalyst Auth / JWT yet.
-          </p>
         </form>
       </main>
     </div>
