@@ -10,6 +10,14 @@ import { DEMO_FIRS } from "./lib/demoFirs";
 
 const LIMIT_OPTIONS = [5, 10] as const;
 
+/**
+ * The endpoint probes a FIR's *stored* vector, so the input must be a FIR id —
+ * free text ("vehicle theft") would need a Voyage embed on the read path, which
+ * is deliberately out of MVP-1 (Auto/18). Guard here so that mistake reads as a
+ * hint rather than a raw 400/404 from the Gateway.
+ */
+const FIR_ID_PATTERN = /^FIR-[A-Za-z0-9_-]+$/i;
+
 type SimilarCasesPageProps = {
   /** FIR to load on mount — set when arriving from the Network view. */
   initialFirId?: string | null;
@@ -23,6 +31,7 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [rejectedInput, setRejectedInput] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialFirId) {
@@ -58,8 +67,31 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
   }, [firId, limit]);
 
   function runLookup() {
-    const raw = query.trim();
-    if (raw) setFirId(raw);
+    const candidate = query.trim().toUpperCase();
+    if (!candidate) return;
+
+    if (!FIR_ID_PATTERN.test(candidate)) {
+      setRejectedInput(query.trim());
+      setResult(null);
+      setError(null);
+      setNotFound(false);
+      return;
+    }
+
+    setRejectedInput(null);
+    setQuery(candidate);
+    setFirId(candidate);
+  }
+
+  function pickDemoFir(id: string) {
+    setRejectedInput(null);
+    setQuery(id);
+    setFirId(id);
+  }
+
+  function onQueryChange(value: string) {
+    setQuery(value);
+    if (rejectedInput) setRejectedInput(null);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -100,7 +132,7 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
             list="similar-demo-firs"
             placeholder="FIR id — e.g. FIR-002683"
             autoComplete="off"
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={onKeyDown}
             className="w-full rounded border border-[var(--line-strong)] bg-[var(--surface)] px-3.5 py-[11px] text-[14.5px] text-[var(--ink)] shadow-[var(--shadow)] outline-none placeholder:text-[var(--ink-faint)]"
           />
@@ -142,6 +174,43 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
         </button>
       </div>
 
+      <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        <span className="text-[11.5px] uppercase tracking-wide text-[var(--ink-faint)]">Try</span>
+        {DEMO_FIRS.map((f) => (
+          <button
+            key={f.firId}
+            type="button"
+            onClick={() => pickDemoFir(f.firId)}
+            title={`${f.crimeHint} · ${f.districtHint}`}
+            className={`rounded-full border px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11.5px] transition-colors ${
+              firId === f.firId
+                ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"
+                : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"
+            }`}
+          >
+            {f.firId}
+          </button>
+        ))}
+      </div>
+
+      {rejectedInput && (
+        <div
+          className="rounded border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-4 py-4"
+          role="status"
+        >
+          <p className="text-[13.5px] font-semibold text-[var(--ink)]">
+            “{rejectedInput}” is not a FIR id
+          </p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-muted)]">
+            This view starts from one case and finds the FIRs whose narratives are closest to it, so
+            it needs an id such as{" "}
+            <span className="font-[family-name:var(--font-mono)]">FIR-002683</span>. Searching by
+            crime type or free text is not part of MVP-1 — pick one of the ids above to see a worked
+            example.
+          </p>
+        </div>
+      )}
+
       {loading && (
         <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
           Finding cases similar to {firId}…
@@ -172,9 +241,9 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
         </div>
       )}
 
-      {result && !loading && !error && <SimilarResult result={result} />}
+      {result && !loading && !error && !rejectedInput && <SimilarResult result={result} />}
 
-      {!firId && !loading && (
+      {!firId && !loading && !rejectedInput && (
         <p className="text-[13.5px] text-[var(--ink-faint)]">
           Enter a FIR id to find the closest past cases, or open one from a FIR in the Network view.
         </p>
