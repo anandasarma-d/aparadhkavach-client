@@ -55,13 +55,17 @@ export function NetworkCanvas({ network, selectedId, onSelect }: NetworkCanvasPr
           id: node.id,
           label: node.label,
           title: `${entityTypeLabel(node.type)} · ${node.id}`,
+          // Start stays an ellipse + larger so the focus entity still reads as the hub;
+          // every node is filled with its legend color (not only on click).
           shape: isStart ? "ellipse" : "dot",
-          size: isStart ? 22 : 14,
-          borderWidth: isStart ? 3 : 1,
+          size: isStart ? 26 : 16,
+          borderWidth: isStart ? 4 : 2,
+          borderWidthSelected: 4,
           color: {
-            background: isStart ? color : palette.surface,
-            border: color,
+            background: color,
+            border: isStart ? palette.ink : color,
             highlight: { background: color, border: palette.ink },
+            hover: { background: color, border: palette.ink },
           },
           font: {
             color: palette.ink,
