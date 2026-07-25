@@ -17,9 +17,11 @@ const DIAL_CIRCUMFERENCE = 2 * Math.PI * 44;
 type RiskLookupPageProps = {
   /** When true, App shell owns the top chrome — skip duplicate header. */
   embedded?: boolean;
+  /** Jump to the K2 network view for this accused (A10). Omitted when rendered standalone. */
+  onShowNetwork?: (accusedId: string) => void;
 };
 
-export function RiskLookupPage({ embedded = false }: RiskLookupPageProps) {
+export function RiskLookupPage({ embedded = false, onShowNetwork }: RiskLookupPageProps) {
   const listboxId = useId();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -221,7 +223,7 @@ export function RiskLookupPage({ embedded = false }: RiskLookupPageProps) {
             {error}
           </p>
         )}
-        {profile && !loading && <Dossier profile={profile} />}
+        {profile && !loading && <Dossier profile={profile} onShowNetwork={onShowNetwork} />}
         {!profile && !loading && !error && (
           <p className="text-[13.5px] text-[var(--ink-faint)]">
             Select an accused to load their record and QuickML risk assessment.
@@ -232,7 +234,13 @@ export function RiskLookupPage({ embedded = false }: RiskLookupPageProps) {
   );
 }
 
-function Dossier({ profile }: { profile: AccusedRiskProfile }) {
+function Dossier({
+  profile,
+  onShowNetwork,
+}: {
+  profile: AccusedRiskProfile;
+  onShowNetwork?: (accusedId: string) => void;
+}) {
   const score = Number(profile.riskScore);
   const band = riskBand(score);
   const factors = topFeatures(profile.topFeatureImportance, 3);
@@ -277,6 +285,15 @@ function Dossier({ profile }: { profile: AccusedRiskProfile }) {
             Linked FIR history is not listed here — this panel shows the accused&apos;s stored
             record fields only. Model inputs for the score appear under Case drivers.
           </p>
+          {onShowNetwork && (
+            <button
+              type="button"
+              onClick={() => onShowNetwork(profile.accusedId)}
+              className="mt-4 rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-3.5 py-2 text-[12.5px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            >
+              Show network →
+            </button>
+          )}
         </div>
       </article>
 
