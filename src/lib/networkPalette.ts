@@ -1,8 +1,8 @@
 /**
  * Entity-type presentation for the K2 network view.
  *
- * vis-network draws on canvas and cannot read D1's CSS custom properties, so colors are
- * resolved from the live stylesheet at render time (keeps light/dark parity).
+ * vis-network draws on canvas and cannot read CSS custom properties, so colors are resolved
+ * from the live stylesheet at render time (keeps light/dark parity via --graph-* tokens).
  */
 export const ENTITY_TYPE_LABELS: Record<string, string> = {
   Accused: "Accused",
@@ -16,17 +16,32 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   CrimeType: "Crime type",
 };
 
-/** Which D1 token paints each entity type. Unknown labels fall back to the neutral ink. */
+/**
+ * One dedicated hue per type — Vehicle/Phone intentionally diverge (bronze vs steel blue).
+ * Tokens live in index.css so canvas + legend stay in sync.
+ */
 const TYPE_TOKEN: Record<string, string> = {
-  Accused: "--risk-high",
-  FIR: "--accent",
-  Victim: "--risk-moderate",
-  Witness: "--risk-moderate",
-  Location: "--risk-low",
-  Vehicle: "--ink-muted",
-  PhoneNumber: "--ink-muted",
-  InvestigationOfficer: "--accent-ink",
-  CrimeType: "--ink-faint",
+  Accused: "--graph-accused",
+  FIR: "--graph-fir",
+  Victim: "--graph-victim",
+  Witness: "--graph-witness",
+  Location: "--graph-location",
+  Vehicle: "--graph-vehicle",
+  PhoneNumber: "--graph-phone",
+  InvestigationOfficer: "--graph-officer",
+  CrimeType: "--graph-crime",
+};
+
+const TYPE_FALLBACK: Record<string, string> = {
+  Accused: "#a23b3b",
+  FIR: "#2e6e75",
+  Victim: "#b45309",
+  Witness: "#5b6b7c",
+  Location: "#3f7856",
+  Vehicle: "#9a6b2f",
+  PhoneNumber: "#3d6a9f",
+  InvestigationOfficer: "#1d4a4f",
+  CrimeType: "#8a94a6",
 };
 
 export type D1Palette = {
@@ -42,7 +57,7 @@ export function entityTypeLabel(type: string): string {
   return ENTITY_TYPE_LABELS[type] ?? type;
 }
 
-/** Reads resolved D1 token values off :root so canvas colors track the active theme. */
+/** Reads resolved D1 / graph token values so canvas colors track the active theme. */
 export function readD1Palette(element: HTMLElement): D1Palette {
   const styles = getComputedStyle(element);
   const token = (name: string, fallback: string) =>
@@ -50,7 +65,8 @@ export function readD1Palette(element: HTMLElement): D1Palette {
 
   const inkMuted = token("--ink-muted", "#56637a");
   return {
-    color: (type: string) => token(TYPE_TOKEN[type] ?? "--ink-muted", inkMuted),
+    color: (type: string) =>
+      token(TYPE_TOKEN[type] ?? "--ink-muted", TYPE_FALLBACK[type] ?? inkMuted),
     ink: token("--ink", "#182437"),
     inkMuted,
     surface: token("--surface", "#ffffff"),
