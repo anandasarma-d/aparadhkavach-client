@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchHotspots, type HotspotRow } from "./api/hotspotsClient";
-import { districtDisplayName } from "./lib/districtNames";
+import { districtLabel } from "./lib/districtNames";
 
 type SortKey = "district" | "crimeType" | "forecastWindow" | "hotspotScore";
 
@@ -42,8 +42,8 @@ export function HotspotPage() {
         case "district":
           return (
             dir *
-            districtDisplayName(a.districtId).localeCompare(
-              districtDisplayName(b.districtId),
+            districtLabel(a.districtId, a.districtName).localeCompare(
+              districtLabel(b.districtId, b.districtName),
             )
           );
         case "crimeType":
@@ -176,7 +176,7 @@ export function HotspotPage() {
                       className="border-b border-[var(--line)] last:border-0 hover:bg-[var(--accent-soft)]/40"
                     >
                       <td className="px-4 py-3 font-medium text-[var(--ink)]">
-                        {districtDisplayName(row.districtId)}
+                        {districtLabel(row.districtId, row.districtName)}
                       </td>
                       <td className="px-4 py-3 text-[var(--ink-muted)]">{row.crimeType}</td>
                       <td className="px-4 py-3 font-[family-name:var(--font-mono)] text-[var(--ink-muted)]">

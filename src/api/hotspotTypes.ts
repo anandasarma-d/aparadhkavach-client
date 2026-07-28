@@ -2,6 +2,8 @@
 export type HotspotRow = {
   forecastId: string;
   districtId: string;
+  /** From DataStore districts via analytics; may be null if ROWID unknown */
+  districtName?: string | null;
   crimeType: string;
   forecastWindow: string;
   hotspotScore: number;
