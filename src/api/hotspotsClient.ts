@@ -1,5 +1,5 @@
 import type { HotspotsPage } from "./hotspotTypes";
-import { apiGatewayBaseUrl } from "./apiGatewayClient";
+import { apiGatewayBaseUrl, authHeaders } from "./apiGatewayClient";
 
 export type { HotspotRow, HotspotsPage } from "./hotspotTypes";
 
@@ -15,7 +15,7 @@ export async function fetchHotspots(
 
   const url = `${base}/v1/analytics/hotspots?${params.toString()}`;
   const res = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers: authHeaders(),
     signal,
   });
 

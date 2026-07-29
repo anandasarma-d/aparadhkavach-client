@@ -1,5 +1,5 @@
 import type { SimilarCases } from "./similarCasesTypes";
-import { apiGatewayBaseUrl } from "./apiGatewayClient";
+import { apiGatewayBaseUrl, authHeaders } from "./apiGatewayClient";
 
 export type { SimilarCase, SimilarCases } from "./similarCasesTypes";
 
@@ -28,7 +28,7 @@ export async function fetchSimilarCases(
   const base = apiGatewayBaseUrl();
   const url = `${base}/v1/firs/${encodeURIComponent(id)}/similarCases?limit=${clamped}`;
   const res = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers: authHeaders(),
     signal,
   });
 

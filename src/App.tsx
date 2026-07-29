@@ -1,47 +1,54 @@
 import { useState, type ReactNode } from "react";
+import { revokeSession } from "./api/authClient";
+import {
+  clearSession,
+  loadSession,
+  saveSession,
+  type AuthSession,
+} from "./auth/session";
 import { HotspotPage } from "./HotspotPage";
 import { LoginPage } from "./LoginPage";
 import { NetworkPage } from "./NetworkPage";
 import { RiskLookupPage } from "./RiskLookupPage";
 import { SimilarCasesPage } from "./SimilarCasesPage";
 import {
-  DEFAULT_ROLE,
-  ROLE_HOME,
   ROLE_LABELS,
   VIEW_LABELS,
   canSee,
+  homeView,
   visibleViews,
   type AppView,
-  type DemoRole,
-} from "./rbac/demoRoleMatrix";
+} from "./rbac/roleMatrix";
 
 /**
- * Minimal F1 ↔ F2 ↔ K2 ↔ similar-cases switch — not a full dashboard shell (A6/A10/A12).
- * Demo RBAC (Auto/21 Approach A): Sign-In gate picks a persona; Logout returns to the gate.
- * Capability gating only — not Catalyst Auth / JWT.
+ * Lane B shell (mvp2/10): JWT session in sessionStorage; tabs from server views[].
  */
 export function App() {
-  const [signedIn, setSignedIn] = useState(false);
-  const [role, setRole] = useState<DemoRole>(DEFAULT_ROLE);
-  const [view, setView] = useState<AppView>(ROLE_HOME[DEFAULT_ROLE]);
+  const [session, setSession] = useState<AuthSession | null>(() => loadSession());
+  const [view, setView] = useState<AppView>(() => {
+    const s = loadSession();
+    return s ? homeView(s.views, s.homeView) : "risk";
+  });
   const [networkEntityId, setNetworkEntityId] = useState<string | null>(null);
   const [similarFirId, setSimilarFirId] = useState<string | null>(null);
 
-  const tabs = visibleViews(role);
-
-  function signIn(next: DemoRole) {
-    setRole(next);
-    setView(ROLE_HOME[next]);
+  function onSignedIn(next: AuthSession) {
+    saveSession(next);
+    setSession(next);
+    setView(homeView(next.views, next.homeView));
     setNetworkEntityId(null);
     setSimilarFirId(null);
-    setSignedIn(true);
   }
 
-  /** Demo logout — returns to Sign-In. No auth token / session store to clear. */
   function logout() {
-    setSignedIn(false);
+    const token = session?.accessToken;
+    clearSession();
+    setSession(null);
     setNetworkEntityId(null);
     setSimilarFirId(null);
+    if (token) {
+      void revokeSession(token);
+    }
   }
 
   function showNetworkFor(accusedId: string) {
@@ -54,9 +61,12 @@ export function App() {
     setView("similar");
   }
 
-  if (!signedIn) {
-    return <LoginPage onSignIn={signIn} />;
+  if (!session) {
+    return <LoginPage onSignedIn={onSignedIn} />;
   }
+
+  const tabs = visibleViews(session.views);
+  const roleLabel = ROLE_LABELS[session.role] ?? session.displayName;
 
   return (
     <div className="min-h-screen bg-[var(--paper)] text-[var(--ink)]">
@@ -67,7 +77,7 @@ export function App() {
             alt="AparadhKavach logo"
             className="h-10 w-10 shrink-0"
           />
-          AparadhKavach · MVP-1
+          AparadhKavach · Lane B
         </span>
         <nav className="flex items-center gap-1" aria-label="Primary">
           {tabs.map((v) => (
@@ -79,7 +89,7 @@ export function App() {
         <div className="flex items-center gap-3">
           <span className="font-[family-name:var(--font-mono)] text-[12.5px]">
             <span className="text-[var(--ink-faint)]">Signed in as</span>{" "}
-            <span className="font-medium text-[var(--accent-ink)]">{ROLE_LABELS[role]}</span>
+            <span className="font-medium text-[var(--accent-ink)]">{roleLabel}</span>
           </span>
           <button
             type="button"
@@ -94,14 +104,18 @@ export function App() {
       {view === "risk" && (
         <RiskLookupPage
           embedded
-          onShowNetwork={canSee(role, "network") ? showNetworkFor : undefined}
+          onShowNetwork={
+            canSee(session.views, "network") ? showNetworkFor : undefined
+          }
         />
       )}
       {view === "hotspots" && <HotspotPage />}
       {view === "network" && (
         <NetworkPage
           initialEntityId={networkEntityId}
-          onShowSimilar={canSee(role, "similar") ? showSimilarFor : undefined}
+          onShowSimilar={
+            canSee(session.views, "similar") ? showSimilarFor : undefined
+          }
         />
       )}
       {view === "similar" && <SimilarCasesPage initialFirId={similarFirId} />}
@@ -124,8 +138,8 @@ function NavButton({
       onClick={onClick}
       className={
         active
-          ? "rounded px-3 py-1.5 font-medium text-[var(--accent-ink)] bg-[var(--accent-soft)]"
-          : "rounded px-3 py-1.5 text-[var(--ink-muted)] hover:bg-[var(--surface)] hover:text-[var(--ink)]"
+          ? "rounded-md bg-[var(--accent-soft)] px-3 py-1.5 font-[family-name:var(--font-mono)] text-[12.5px] font-medium text-[var(--accent-ink)]"
+          : "rounded-md px-3 py-1.5 font-[family-name:var(--font-mono)] text-[12.5px] text-[var(--ink-muted)] hover:bg-[var(--surface)] hover:text-[var(--ink)]"
       }
     >
       {children}

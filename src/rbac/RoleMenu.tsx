@@ -1,27 +1,21 @@
 import { useEffect, useId, useRef, useState } from "react";
 import {
-  DEMO_ROLES,
+  BOOTSTRAP_ROLES,
   ROLE_LABELS,
-  type DemoRole,
-} from "./demoRoleMatrix";
+  type AppRole,
+} from "./roleMatrix";
 
 type RoleMenuProps = {
-  role: DemoRole;
-  onChange: (next: DemoRole) => void;
-  /** Visible prefix before the role name. Empty = role name only. */
+  role: AppRole;
+  onChange: (next: AppRole) => void;
   label?: string;
-  /** Larger trigger for the Sign-In gate. */
   size?: "compact" | "comfortable";
-  /** `ghost` = header control; `field` = bordered form control. */
   variant?: "ghost" | "field";
-  /** Optional id for the trigger button (pairs with an external <label>). */
   id?: string;
   className?: string;
 };
 
-/**
- * Shared sleek role picker for the Sign-In gate (demo persona select).
- */
+/** Role picker for bootstrap session mint (until Embedded Auth replaces this gate). */
 export function RoleMenu({
   role,
   onChange,
@@ -95,7 +89,7 @@ export function RoleMenu({
           aria-label={showLabel ? label : "Role"}
           className={`absolute left-0 right-0 z-20 mt-1.5 ${menuMin} overflow-hidden rounded-md border border-[var(--line)] bg-[var(--surface)] py-1 shadow-[var(--shadow)]`}
         >
-          {DEMO_ROLES.map((r) => {
+          {BOOTSTRAP_ROLES.map((r) => {
             const selected = r === role;
             return (
               <li key={r} role="option" aria-selected={selected}>

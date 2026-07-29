@@ -1,5 +1,5 @@
 import type { EntityNetwork } from "./entityNetworkTypes";
-import { apiGatewayBaseUrl } from "./apiGatewayClient";
+import { apiGatewayBaseUrl, authHeaders } from "./apiGatewayClient";
 
 export type { EntityNetwork, NetworkEdge, NetworkNode } from "./entityNetworkTypes";
 
@@ -28,7 +28,7 @@ export async function fetchEntityNetwork(
   const base = apiGatewayBaseUrl();
   const url = `${base}/v1/entities/${encodeURIComponent(id)}/network?depth=${clamped}`;
   const res = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers: authHeaders(),
     signal,
   });
 

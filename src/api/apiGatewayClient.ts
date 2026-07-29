@@ -1,5 +1,21 @@
 import type { AccusedRiskProfile } from "./accusedRiskProfile";
 
+
+import { accessToken } from "../auth/session";
+
+/** JSON Accept + Bearer when a session exists (mvp2/10 required Gateway JWT). */
+export function authHeaders(extra?: HeadersInit): Headers {
+  const headers = new Headers(extra);
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json");
+  }
+  const token = accessToken();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+
 /**
  * Browser talks to the API Gateway only (Design & Schema §3.2 / §6.1; C8).
  * - DEV: same-origin `/v1/...` via Vite proxy → Gateway (avoids localhost vs 127.0.0.1 CORS).
@@ -30,7 +46,7 @@ export async function fetchAccusedRiskProfile(
   const base = apiGatewayBaseUrl();
   const url = `${base}/v1/accusedPersons/${encodeURIComponent(id)}:riskProfile`;
   const res = await fetch(url, {
-    headers: { Accept: "application/json" },
+    headers: authHeaders(),
     signal,
   });
 
