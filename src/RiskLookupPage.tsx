@@ -134,9 +134,6 @@ export function RiskLookupPage({ embedded = false, onShowNetwork }: RiskLookupPa
       </div>
 
       <section className="mx-auto max-w-[1180px] px-7 pb-16 pt-9">
-        <div className="mb-1.5 font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.08em] text-[var(--ink-faint)]">
-          Feature 1 — C2
-        </div>
         <h1 className="mb-7 border-b border-[var(--line)] pb-[18px] font-[family-name:var(--font-display)] text-[26px] font-normal text-[var(--ink)] text-balance">
           Repeat-Offender Risk Lookup
           <small className="mt-1.5 block font-[family-name:var(--font-body)] text-[13px] font-normal text-[var(--ink-muted)]">

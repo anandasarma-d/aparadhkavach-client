@@ -80,11 +80,8 @@ export function NetworkPage({ initialEntityId = null, onShowSimilar }: NetworkPa
   return (
     <div className="mx-auto max-w-6xl px-7 py-8">
       <header className="mb-7 max-w-2xl">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
-          Feature K2 — Criminal network
-        </p>
         <h1
-          className="mt-2 font-[family-name:var(--font-display)] text-[2rem] leading-tight text-[var(--ink)]"
+          className="font-[family-name:var(--font-display)] text-[2rem] leading-tight text-[var(--ink)]"
           style={{ fontWeight: 400 }}
         >
           Entity relationship view

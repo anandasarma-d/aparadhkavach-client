@@ -9,8 +9,8 @@ type LoginPageProps = {
 };
 
 /**
- * Bootstrap Sign-In (mvp2/10): mints JWT via Gateway + AUTH_ALLOW_DEV_MINT.
- * Replace with Catalyst Embedded Auth once invite/confirm password works on Slate.
+ * Role Sign-In (mvp2/10 interim): mints JWT via Gateway while AUTH_ALLOW_DEV_MINT is on.
+ * Replace with Catalyst Embedded Auth once Hosted set-password / Confirm works on Slate.
  */
 export function LoginPage({ onSignedIn }: LoginPageProps) {
   const [role, setRole] = useState<AppRole>(DEFAULT_ROLE);
@@ -54,10 +54,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
               .finally(() => setBusy(false));
           }}
         >
-          <p className="mb-3 font-[family-name:var(--font-mono)] text-[11px] leading-snug text-[var(--ink-faint)]">
-            Bootstrap JWT mint (Lane B) — Catalyst Embedded login replaces this
-            after password confirm works.
-          </p>
           <label
             htmlFor="sign-in-role"
             className="mb-2 block font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.08em] text-[var(--ink-faint)]"
