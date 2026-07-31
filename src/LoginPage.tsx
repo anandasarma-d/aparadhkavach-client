@@ -93,7 +93,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       />
 
       <style>{`
-        /* Catalyst default iframe is ~520px tall; keep host tight so the page does not scroll. */
+        /* Catalyst default CSS keeps inactive panels hidden; we only clip the tall empty iframe. */
         #catalyst-login,
         #catalyst-forgot {
           overflow: hidden;
@@ -102,8 +102,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           display: block;
           width: 100% !important;
           max-width: 100%;
-          /* Email + password steps fit; clips Catalyst's leftover 520px empty band. */
-          height: 300px !important;
+          /* Active form sits at the top; clip the ~520px empty band below. */
+          height: 340px !important;
           min-height: 0 !important;
           border: 0 !important;
         }
@@ -111,7 +111,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           display: block;
           width: 100% !important;
           max-width: 100%;
-          height: 360px !important;
+          height: 380px !important;
           min-height: 0 !important;
           border: 0 !important;
         }
