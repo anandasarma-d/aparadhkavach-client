@@ -83,30 +83,49 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
   }, [mode]);
 
+  const compact = mode === "embedded";
+
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center bg-[var(--paper)] px-6 text-[var(--ink)]">
+    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-x-hidden bg-[var(--paper)] px-4 py-6 text-[var(--ink)] sm:px-6">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_20%,color-mix(in_srgb,var(--accent-soft)_70%,transparent),transparent_55%)]"
       />
 
-      <main className="relative w-full max-w-[28rem]">
-        <div className="mb-8 flex flex-col items-center text-center">
+      <style>{`
+        #catalyst-login iframe,
+        #catalyst-forgot iframe {
+          display: block;
+          width: 100% !important;
+          max-width: 100%;
+          min-height: 240px;
+          border: 0 !important;
+        }
+      `}</style>
+
+      <main className={`relative w-full ${compact ? "max-w-[26rem]" : "max-w-[26rem]"}`}>
+        <div className={`flex flex-col items-center text-center ${compact ? "mb-4" : "mb-8"}`}>
           <img
             src="/aparadhkavach-logo.png"
             alt="AparadhKavach logo"
-            className="mb-5 h-28 w-28"
+            className={compact ? "mb-3 h-16 w-16" : "mb-5 h-28 w-28"}
           />
-          <h1 className="font-[family-name:var(--font-display)] text-[2rem] font-normal tracking-tight text-[var(--ink)]">
+          <h1
+            className={`font-[family-name:var(--font-display)] font-normal tracking-tight text-[var(--ink)] ${
+              compact ? "text-[1.65rem]" : "text-[2rem]"
+            }`}
+          >
             AparadhKavach
           </h1>
-          <p className="mt-2 max-w-[23rem] text-[14.5px] leading-relaxed text-[var(--ink-muted)]">
-            Crime Intelligence Platform for Karnataka Police — Support for risk
-            lookup, hotspot forecasts, criminal networks, and similar cases.
-          </p>
+          {!compact && (
+            <p className="mt-2 max-w-[23rem] text-[14.5px] leading-relaxed text-[var(--ink-muted)]">
+              Crime Intelligence Platform for Karnataka Police — Support for risk
+              lookup, hotspot forecasts, criminal networks, and similar cases.
+            </p>
+          )}
         </div>
 
-        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-5 shadow-[var(--shadow)]">
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)] sm:p-5">
           {mode === "loading" && (
             <p className="text-center text-[14px] text-[var(--ink-muted)]">
               {busy ? "Finishing sign-in…" : "Loading sign-in…"}
@@ -115,16 +134,25 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
 
           {mode === "embedded" && (
             <>
-              <p className="mb-3 text-center text-[13px] text-[var(--ink-muted)]">
+              <p className="mb-2 text-center text-[13px] text-[var(--ink-muted)]">
                 Sign in with your AparadhKavach account
               </p>
+              {/* Login + forgot/set-password hosts — sized by iframe content, not a fixed empty box */}
               <div
                 id="catalyst-login"
-                className="min-h-[22rem] w-full overflow-hidden rounded-md border border-[var(--line)] bg-[var(--paper)]"
+                className="w-full rounded-md bg-[var(--paper)] [&:empty]:min-h-[12rem]"
               />
+              <div
+                id="catalyst-forgot"
+                className="mt-2 w-full rounded-md bg-[var(--paper)] empty:hidden"
+              />
+              <p className="mt-2 text-center text-[11px] leading-snug text-[var(--ink-faint)]">
+                New users: after email, use <span className="font-medium">Set password now</span> /
+                Forgot password. If that step is blank, enable Hosted Auth in Catalyst and re-invite.
+              </p>
               <button
                 type="button"
-                className="mt-3 w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
+                className="mt-2 w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
                 onClick={() => setMode("fallback")}
               >
                 Use demo role picker instead

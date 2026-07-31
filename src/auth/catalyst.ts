@@ -159,7 +159,7 @@ export async function readCatalystIdentity(): Promise<CatalystIdentity | null> {
   };
 }
 
-/** Mount Embedded login iframe into #elementId. */
+/** Mount Embedded login iframe into #elementId (forgot-password uses #catalyst-forgot). */
 export function startEmbeddedSignIn(elementId: string): void {
   const auth = window.catalyst?.auth;
   if (!auth?.signIn) {
@@ -168,7 +168,9 @@ export function startEmbeddedSignIn(elementId: string): void {
   auth.signIn(elementId, {
     // After password login, reload this SPA so we can mint AparadhKavach JWT.
     service_url: `${window.location.origin}/`,
-    css_url: undefined,
+    // Render forgot / set-password UI in a dedicated host (avoids clipping inside the login iframe).
+    is_customize_forgot_password: true,
+    forgot_password_id: "catalyst-forgot",
   });
 }
 
