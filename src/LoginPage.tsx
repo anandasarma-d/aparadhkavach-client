@@ -93,12 +93,26 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       />
 
       <style>{`
-        #catalyst-login iframe,
+        /* Catalyst default iframe is ~520px tall; keep host tight so the page does not scroll. */
+        #catalyst-login,
+        #catalyst-forgot {
+          overflow: hidden;
+        }
+        #catalyst-login iframe {
+          display: block;
+          width: 100% !important;
+          max-width: 100%;
+          /* Email + password steps fit; clips Catalyst's leftover 520px empty band. */
+          height: 300px !important;
+          min-height: 0 !important;
+          border: 0 !important;
+        }
         #catalyst-forgot iframe {
           display: block;
           width: 100% !important;
           max-width: 100%;
-          min-height: 240px;
+          height: 360px !important;
+          min-height: 0 !important;
           border: 0 !important;
         }
       `}</style>
@@ -137,16 +151,10 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
               <p className="mb-2 text-center text-[13px] text-[var(--ink-muted)]">
                 Sign in with your AparadhKavach account
               </p>
-              {/* Login + forgot/set-password hosts — sized by iframe content, not a fixed empty box */}
-              <div
-                id="catalyst-login"
-                className="w-full rounded-md bg-[var(--paper)] [&:empty]:min-h-[12rem]"
-              />
-              <div
-                id="catalyst-forgot"
-                className="mt-2 w-full rounded-md bg-[var(--paper)] empty:hidden"
-              />
-              <p className="mt-2 text-center text-[11px] leading-snug text-[var(--ink-faint)]">
+              {/* Hosts stay white — paper bg was the grey strip above Catalyst's "Sign in". */}
+              <div id="catalyst-login" className="w-full [&:empty]:min-h-[10rem]" />
+              <div id="catalyst-forgot" className="mt-1 w-full empty:hidden" />
+              <p className="mt-3 text-center text-[11px] leading-snug text-[var(--ink-faint)]">
                 New users: after email, use <span className="font-medium">Set password now</span> /
                 Forgot password. If that step is blank, enable Hosted Auth in Catalyst and re-invite.
               </p>

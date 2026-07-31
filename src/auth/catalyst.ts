@@ -168,9 +168,12 @@ export function startEmbeddedSignIn(elementId: string): void {
   auth.signIn(elementId, {
     // After password login, reload this SPA so we can mint AparadhKavach JWT.
     service_url: `${window.location.origin}/`,
+    // Compact overrides — Catalyst default CSS uses min-height: 520px (empty scroll).
+    css_url: `${window.location.origin}/embedded-auth.css`,
     // Render forgot / set-password UI in a dedicated host (avoids clipping inside the login iframe).
     is_customize_forgot_password: true,
     forgot_password_id: "catalyst-forgot",
+    forgot_password_css_url: `${window.location.origin}/embedded-forgot.css`,
   });
 }
 
