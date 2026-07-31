@@ -3,8 +3,10 @@ import { createBootstrapSession } from "./api/authClient";
 import type { AuthSession } from "./auth/session";
 import {
   catalystAvailable,
+  catalystSignOut,
   ensureCatalystSdk,
   isCatalystAuthenticated,
+  redirectInviteConfirmToPortal,
   readCatalystIdentity,
   startEmbeddedSignIn,
 } from "./auth/catalyst";
@@ -15,7 +17,7 @@ type LoginPageProps = {
   onSignedIn: (session: AuthSession) => void;
 };
 
-type Mode = "loading" | "embedded" | "fallback";
+type Mode = "loading" | "embedded" | "fallback" | "confirm-redirect" | "auth-stuck";
 
 /**
  * Prefer Catalyst Embedded Auth iframe (mvp2/10). Falls back to role picker when
@@ -32,6 +34,12 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     let cancelled = false;
 
     async function boot() {
+      // Invite links hit Slate `/accounts/.../pconfirm` → SPA. Bounce to Zoho portal.
+      if (redirectInviteConfirmToPortal()) {
+        setMode("confirm-redirect");
+        return;
+      }
+
       const ok = await ensureCatalystSdk();
       if (cancelled) return;
 
@@ -45,7 +53,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           setBusy(true);
           const identity = await readCatalystIdentity();
           if (!identity) {
-            throw new Error("Signed in to Catalyst but could not read user profile");
+            throw new Error(
+              "Signed in to Catalyst but could not read user profile (getCurrentProjectUser returned empty).",
+            );
           }
           const session = await createBootstrapSession(identity.role, {
             sub: identity.sub,
@@ -57,12 +67,16 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       } catch (err: unknown) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
+          // Already authenticated but cannot mint — do not remount Embedded (empty iframe loop).
+          setMode("auth-stuck");
+          setBusy(false);
+          return;
         }
       } finally {
         if (!cancelled) setBusy(false);
       }
 
-      setMode("embedded");
+      if (!cancelled) setMode("embedded");
     }
 
     void boot();
@@ -83,7 +97,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
   }, [mode]);
 
-  const compact = mode === "embedded";
+  const compact =
+    mode === "embedded" || mode === "confirm-redirect" || mode === "auth-stuck";
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-x-hidden bg-[var(--paper)] px-4 py-6 text-[var(--ink)] sm:px-6">
@@ -93,31 +108,24 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       />
 
       <style>{`
-        /* Catalyst default CSS keeps inactive panels hidden; we only clip the tall empty iframe. */
-        #catalyst-login,
-        #catalyst-forgot {
+        /* Clip Catalyst's fixed ~520px iframe; active form stays at the top. */
+        #catalyst-login {
           overflow: hidden;
+          max-height: 300px;
         }
         #catalyst-login iframe {
           display: block;
           width: 100% !important;
           max-width: 100%;
-          /* Active form sits at the top; clip the ~520px empty band below. */
-          height: 340px !important;
+          height: 300px !important;
           min-height: 0 !important;
           border: 0 !important;
-        }
-        #catalyst-forgot iframe {
-          display: block;
-          width: 100% !important;
-          max-width: 100%;
-          height: 380px !important;
-          min-height: 0 !important;
-          border: 0 !important;
+          /* Crop faint grey portal_logo / top chrome Catalyst leaves above "Sign in". */
+          margin-top: -8px;
         }
       `}</style>
 
-      <main className={`relative w-full ${compact ? "max-w-[26rem]" : "max-w-[26rem]"}`}>
+      <main className="relative w-full max-w-[26rem]">
         <div className={`flex flex-col items-center text-center ${compact ? "mb-4" : "mb-8"}`}>
           <img
             src="/aparadhkavach-logo.png"
@@ -146,17 +154,75 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             </p>
           )}
 
+          {mode === "confirm-redirect" && (
+            <div className="space-y-3 text-center">
+              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">
+                Opening set-password…
+              </h2>
+              <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
+                Redirecting invite link to{" "}
+                <span className="font-[family-name:var(--font-mono)] text-[12px]">
+                  accounts.zohoportal.in
+                </span>
+                .
+              </p>
+            </div>
+          )}
+
+          {mode === "auth-stuck" && (
+            <div className="space-y-3 text-center">
+              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">
+                Catalyst session found — app login blocked
+              </h2>
+              {error && (
+                <p className="text-left text-[13px] text-red-700" role="alert">
+                  {error}
+                </p>
+              )}
+              <ol className="list-decimal space-y-1.5 pl-5 text-left text-[13px] leading-relaxed text-[var(--ink-muted)]">
+                <li>
+                  Console → Users → Edit the signed-in user → set role to exactly{" "}
+                  <span className="font-[family-name:var(--font-mono)] text-[12px]">
+                    INVESTIGATOR
+                  </span>{" "}
+                  / ANALYST / SUPERVISOR / POLICYMAKER (not App Administrator / App User).
+                </li>
+                <li>Sign out of Catalyst below, then reload and sign in again with email + password.</li>
+                <li>Or use the demo role picker for Lane B demos.</li>
+              </ol>
+              <button
+                type="button"
+                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
+                onClick={() => {
+                  catalystSignOut("/");
+                  window.location.assign("/");
+                }}
+              >
+                Sign out of Catalyst & reload
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)]"
+                onClick={() => {
+                  setError(null);
+                  setMode("fallback");
+                }}
+              >
+                Use demo role picker
+              </button>
+            </div>
+          )}
+
           {mode === "embedded" && (
             <>
               <p className="mb-2 text-center text-[13px] text-[var(--ink-muted)]">
                 Sign in with your AparadhKavach account
               </p>
-              {/* Hosts stay white — paper bg was the grey strip above Catalyst's "Sign in". */}
-              <div id="catalyst-login" className="w-full [&:empty]:min-h-[10rem]" />
-              <div id="catalyst-forgot" className="mt-1 w-full empty:hidden" />
+              <div id="catalyst-login" className="w-full [&:empty]:min-h-[12rem]" />
               <p className="mt-3 text-center text-[11px] leading-snug text-[var(--ink-faint)]">
-                New users: after email, use <span className="font-medium">Set password now</span> /
-                Forgot password. If that step is blank, enable Hosted Auth in Catalyst and re-invite.
+                New users: open the invite link (after redeploy it jumps to{" "}
+                <span className="font-[family-name:var(--font-mono)]">accounts.zohoportal.in</span>
+                ), set password until Confirm=Yes, then sign in here. Or use the demo picker.
               </p>
               <button
                 type="button"
@@ -208,7 +274,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             </form>
           )}
 
-          {error && (
+          {error && mode !== "auth-stuck" && (
             <p className="mt-3 text-[13px] text-red-700" role="alert">
               {error}
             </p>

@@ -23,7 +23,12 @@ type CatalystUser = {
 type CatalystAuthApi = {
   signIn: (elementId: string, config?: Record<string, unknown>) => void;
   signOut: (redirectUrl?: string) => void;
-  isUserAuthenticated: () => Promise<{ content?: boolean } | boolean>;
+  isUserAuthenticated: () => Promise<{ content?: boolean | CatalystUser } | boolean | CatalystUser>;
+  getCurrentUser?: () => Promise<{ content?: CatalystUser } | CatalystUser>;
+};
+
+type CatalystUserManagement = {
+  getCurrentProjectUser?: () => Promise<{ content?: CatalystUser } | CatalystUser>;
   getCurrentUser?: () => Promise<{ content?: CatalystUser } | CatalystUser>;
 };
 
@@ -31,10 +36,9 @@ declare global {
   interface Window {
     catalyst?: {
       auth?: CatalystAuthApi & {
-        userManagement?: {
-          getCurrentUser: () => Promise<{ content?: CatalystUser } | CatalystUser>;
-        };
+        userManagement?: CatalystUserManagement;
       };
+      userManagement?: CatalystUserManagement;
       initApp?: (cfg: unknown) => void;
     };
   }
@@ -77,34 +81,77 @@ export function catalystAvailable(): boolean {
   return typeof window.catalyst?.auth?.signIn === "function";
 }
 
+function unwrapUser(result: unknown): CatalystUser | null {
+  if (!result || typeof result !== "object") return null;
+  if ("content" in result) {
+    const content = (result as { content?: unknown }).content;
+    if (!content || typeof content !== "object") return null;
+    // isUserAuthenticated sometimes returns { content: true/false }
+    if (!("email_id" in content || "email" in content || "user_id" in content || "userId" in content || "role_details" in content)) {
+      return null;
+    }
+    return content as CatalystUser;
+  }
+  if ("email_id" in result || "email" in result || "user_id" in result || "role_details" in result) {
+    return result as CatalystUser;
+  }
+  return null;
+}
+
 export async function isCatalystAuthenticated(): Promise<boolean> {
   const auth = window.catalyst?.auth;
   if (!auth?.isUserAuthenticated) return false;
   try {
     const result = await auth.isUserAuthenticated();
     if (typeof result === "boolean") return result;
-    return Boolean(result?.content);
+    if (result && typeof result === "object" && "content" in result) {
+      const content = (result as { content?: unknown }).content;
+      if (typeof content === "boolean") return content;
+      return Boolean(unwrapUser(result));
+    }
+    return Boolean(unwrapUser(result));
   } catch {
     return false;
   }
 }
 
 async function fetchCurrentUserRaw(): Promise<CatalystUser | null> {
-  const auth = window.catalyst?.auth;
-  if (!auth) return null;
-  try {
-    const viaUm = auth.userManagement?.getCurrentUser;
-    const viaAuth = auth.getCurrentUser;
-    const fn = viaUm ?? viaAuth;
-    if (!fn) return null;
-    const result = await fn.call(auth.userManagement ?? auth);
-    if (result && typeof result === "object" && "content" in result) {
-      return (result as { content?: CatalystUser }).content ?? null;
-    }
-    return (result as CatalystUser) ?? null;
-  } catch {
-    return null;
+  const cat = window.catalyst;
+  if (!cat) return null;
+
+  const attempts: Array<() => Promise<unknown>> = [];
+
+  const um = cat.userManagement ?? cat.auth?.userManagement;
+  if (um?.getCurrentProjectUser) {
+    attempts.push(() => um.getCurrentProjectUser!());
   }
+  if (um?.getCurrentUser) {
+    attempts.push(() => um.getCurrentUser!());
+  }
+  if (cat.auth?.getCurrentUser) {
+    attempts.push(() => cat.auth!.getCurrentUser!());
+  }
+  // Web SDK v4: isUserAuthenticated resolves to { content: <user> } when signed in.
+  if (cat.auth?.isUserAuthenticated) {
+    attempts.push(() => cat.auth!.isUserAuthenticated());
+  }
+
+  let lastError: unknown;
+  for (const attempt of attempts) {
+    try {
+      const user = unwrapUser(await attempt());
+      if (user) return user;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (lastError) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`Catalyst getCurrentUser failed: ${String(lastError)}`);
+  }
+  return null;
 }
 
 export function mapCatalystRole(raw: unknown): AppRole | null {
@@ -136,7 +183,7 @@ export async function readCatalystIdentity(): Promise<CatalystIdentity | null> {
   const role = mapCatalystRole(roleRaw);
   if (!role) {
     throw new Error(
-      `Catalyst user role "${String(roleRaw ?? "")}" is not one of INVESTIGATOR / ANALYST / SUPERVISOR / POLICYMAKER`,
+      `Catalyst role "${String(roleRaw ?? "")}" cannot sign in here. In console → Users → Edit, set role to INVESTIGATOR / ANALYST / SUPERVISOR / POLICYMAKER (not App Administrator / App User), then reload.`,
     );
   }
 
@@ -159,7 +206,7 @@ export async function readCatalystIdentity(): Promise<CatalystIdentity | null> {
   };
 }
 
-/** Mount Embedded login iframe into #elementId (forgot-password uses #catalyst-forgot). */
+/** Mount Embedded login iframe into #elementId. */
 export function startEmbeddedSignIn(elementId: string): void {
   const auth = window.catalyst?.auth;
   if (!auth?.signIn) {
@@ -169,10 +216,29 @@ export function startEmbeddedSignIn(elementId: string): void {
     // After password login, reload this SPA so we can mint AparadhKavach JWT.
     service_url: `${window.location.origin}/`,
     // Do not set css_url — custom sheets replace Catalyst defaults and break panel show/hide.
-    // Render forgot / set-password UI in a dedicated host (avoids clipping inside the login iframe).
-    is_customize_forgot_password: true,
-    forgot_password_id: "catalyst-forgot",
+    // Keep forgot password in the same iframe (a second host stacks Sign-In + Forgot UIs).
   });
+}
+
+/** Invite set-password links land on Slate `/accounts/.../pconfirm` (SPA index). */
+export function isCatalystConfirmPath(pathname = window.location.pathname): boolean {
+  const path = pathname.toLowerCase();
+  return path.includes("/pconfirm") || path.includes("/accounts/");
+}
+
+/**
+ * Hosted Auth is already enabled on workbench; the real Confirm Password UI is on
+ * `accounts.zohoportal.in`. Slate catches `/accounts/**` and serves our SPA instead,
+ * so invite emails appear to "only open Sign-In". Bounce to the portal with the same
+ * path + digest query.
+ */
+export function redirectInviteConfirmToPortal(): boolean {
+  if (!isCatalystConfirmPath()) return false;
+  if (window.location.hostname.toLowerCase().includes("zohoportal")) return false;
+
+  const target = `https://accounts.zohoportal.in${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.location.replace(target);
+  return true;
 }
 
 export function catalystSignOut(redirectUrl = "/"): void {
