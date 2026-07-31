@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { revokeSession } from "./api/authClient";
+import { catalystSignOut } from "./auth/catalyst";
 import {
   clearSession,
   loadSession,
@@ -49,6 +50,7 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
+    catalystSignOut("/");
   }
 
   function showNetworkFor(accusedId: string) {
