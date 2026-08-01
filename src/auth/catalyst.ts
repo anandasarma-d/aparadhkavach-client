@@ -206,15 +206,22 @@ export async function readCatalystIdentity(): Promise<CatalystIdentity | null> {
   };
 }
 
-/** Mount Embedded login iframe into #elementId. */
+/**
+ * After Embedded password success Catalyst navigates the *iframe* to service_url.
+ * Point at the public Slate host so a nest still breaks out to one known origin (D-081).
+ */
 export function startEmbeddedSignIn(elementId: string): void {
   const auth = window.catalyst?.auth;
   if (!auth?.signIn) {
     throw new Error("Catalyst Embedded Auth is not available on this host");
   }
+  const host = document.getElementById(elementId);
+  if (host) {
+    host.replaceChildren();
+  }
   auth.signIn(elementId, {
-    // After password login, reload this SPA so we can mint AparadhKavach JWT.
-    service_url: `${window.location.origin}/`,
+    // Public host — iframe may still load SPA; LoginPage breaks out of frames (D-081).
+    service_url: `${appOrigin()}/`,
     // Do not set css_url — custom sheets replace Catalyst defaults and break panel show/hide.
     // Keep forgot password in the same iframe (a second host stacks Sign-In + Forgot UIs).
   });
@@ -223,6 +230,10 @@ export function startEmbeddedSignIn(elementId: string): void {
 /** Invite set-password links only — do not match every `/accounts/**` (logout uses those too). */
 export function isCatalystConfirmPath(pathname = window.location.pathname): boolean {
   return pathname.toLowerCase().includes("/pconfirm");
+}
+
+export function isCatalystLogoutPath(pathname = window.location.pathname): boolean {
+  return pathname.toLowerCase().includes("/accounts/logout");
 }
 
 /**
@@ -238,6 +249,49 @@ export function redirectInviteConfirmToPortal(): boolean {
   return true;
 }
 
+/**
+ * Catalyst `signOut(serviceurl)` lands on `…catalystappexecutor.in/accounts/logout?serviceurl=…`.
+ * Slate SPA serves index.html for that path (same class as pconfirm) — finish by following
+ * `serviceurl` (or our logged-out URL) on the top window.
+ */
+export function redirectCatalystLogoutPath(): boolean {
+  if (!isCatalystLogoutPath()) return false;
+  const params = new URLSearchParams(window.location.search);
+  const serviceurl = params.get("serviceurl") || params.get("service_url");
+  let target = loggedOutUrl();
+  if (serviceurl) {
+    try {
+      const parsed = new URL(serviceurl);
+      if (!parsed.searchParams.has("loggedOut")) {
+        parsed.searchParams.set("loggedOut", "1");
+      }
+      target = parsed.toString();
+    } catch {
+      target = serviceurl;
+    }
+  }
+  const win = window.top ?? window;
+  win.location.replace(target);
+  return true;
+}
+
+/**
+ * D-081: when Catalyst posts service_url into the Embedded iframe, our SPA remounts
+ * inside the frame → nested logos. Always promote to the top window on the public host.
+ */
+export function breakOutOfAuthFrameIfNested(): boolean {
+  if (window.self === window.top) return false;
+  try {
+    const top = window.top;
+    if (!top) return false;
+    top.location.replace(`${appOrigin()}/`);
+    return true;
+  } catch {
+    // Cross-origin parent — cannot break out.
+    return false;
+  }
+}
+
 /** Prefer the public Slate host — Catalyst signOut may land on catalystappexecutor.in. */
 export function appOrigin(): string {
   const host = window.location.hostname.toLowerCase();
@@ -250,6 +304,17 @@ export function appOrigin(): string {
 
 export function loggedOutUrl(): string {
   return `${appOrigin()}/?loggedOut=1`;
+}
+
+/** If we somehow stayed on catalystappexecutor (not a Catalyst /accounts path), bounce home. */
+export function redirectExecutorShellToPublicHost(): boolean {
+  const host = window.location.hostname.toLowerCase();
+  if (!host.includes("catalystappexecutor")) return false;
+  if (isCatalystConfirmPath() || isCatalystLogoutPath()) return false;
+  // Allow Catalyst SDK paths under /__catalyst
+  if (window.location.pathname.startsWith("/__catalyst")) return false;
+  window.location.replace(`${appOrigin()}/${window.location.search}${window.location.hash}`);
+  return true;
 }
 
 const SIGNOUT_ATTEMPTED_KEY = "aparadhkavach.auth.signOutAttempted";
@@ -267,19 +332,27 @@ export function wasSignOutAttempted(): boolean {
 }
 
 export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
+  const finish = () => {
+    try {
+      const win = window.top ?? window;
+      win.location.replace(redirectUrl);
+    } catch {
+      window.location.replace(redirectUrl);
+    }
+  };
+
   try {
     await ensureCatalystSdk();
     const auth = window.catalyst?.auth;
     if (typeof auth?.signOut === "function") {
+      // SDK navigates to executor /accounts/logout; SPA swallows that path — we also
+      // force the public host after a short grace so logout never sticks on executor.
       auth.signOut(redirectUrl);
+      window.setTimeout(finish, 2500);
       return;
     }
-    window.location.replace(redirectUrl);
+    finish();
   } catch {
-    try {
-      window.location.replace(redirectUrl);
-    } catch {
-      // ignore
-    }
+    finish();
   }
 }

@@ -3,6 +3,7 @@ import { createBootstrapSession, createCatalystSession } from "./api/authClient"
 import type { AuthSession } from "./auth/session";
 import { clearLogoutPending, isLogoutPending, markLogoutPending } from "./auth/session";
 import {
+  breakOutOfAuthFrameIfNested,
   catalystAvailable,
   catalystSignOut,
   clearSignOutAttempted,
@@ -10,6 +11,8 @@ import {
   isCatalystAuthenticated,
   loggedOutUrl,
   markSignOutAttempted,
+  redirectCatalystLogoutPath,
+  redirectExecutorShellToPublicHost,
   redirectInviteConfirmToPortal,
   readCatalystIdentity,
   startEmbeddedSignIn,
@@ -22,7 +25,7 @@ type LoginPageProps = {
   onSignedIn: (session: AuthSession) => void;
 };
 
-type Mode = "loading" | "embedded" | "fallback" | "confirm-redirect" | "auth-stuck";
+type Mode = "loading" | "embedded" | "fallback" | "confirm-redirect" | "auth-stuck" | "redirecting";
 
 function consumeLoggedOutQuery(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -31,6 +34,13 @@ function consumeLoggedOutQuery(): boolean {
   const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
   window.history.replaceState({}, "", next || "/");
   return true;
+}
+
+function formatAuthError(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message;
+  const raw = String(err ?? "").trim();
+  if (raw && raw !== "Error" && raw !== "[object Object]") return raw;
+  return "Could not finish AparadhKavach sign-in (session mint or Catalyst profile failed).";
 }
 
 /**
@@ -49,9 +59,27 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     let cancelled = false;
 
     async function boot() {
+      // D-081: SPA loaded inside Embedded iframe after service_url → break to top.
+      if (breakOutOfAuthFrameIfNested()) {
+        setMode("redirecting");
+        return;
+      }
+
+      // Catalyst signOut → executor /accounts/logout; SPA swallows it → follow serviceurl.
+      if (redirectCatalystLogoutPath()) {
+        setMode("redirecting");
+        return;
+      }
+
       // Invite links hit Slate `/accounts/.../pconfirm` → SPA. Bounce to Zoho portal.
       if (redirectInviteConfirmToPortal()) {
         setMode("confirm-redirect");
+        return;
+      }
+
+      // Prefer public Slate host over catalystappexecutor shell (logout residue).
+      if (redirectExecutorShellToPublicHost()) {
+        setMode("redirecting");
         return;
       }
 
@@ -106,13 +134,21 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           return;
         }
       } catch (err: unknown) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-          // Already authenticated but cannot mint — do not remount Embedded (empty iframe loop).
-          setMode("auth-stuck");
-          setBusy(false);
+        if (cancelled) return;
+        const message = formatAuthError(err);
+        // D-082: stale Catalyst cookie + failed mint → force one sign-out instead of sticky card.
+        if (!wasSignOutAttempted()) {
+          markLogoutPending();
+          markSignOutAttempted();
+          setError(message);
+          setMode("redirecting");
+          await catalystSignOut(loggedOutUrl());
           return;
         }
+        setError(message);
+        setMode("auth-stuck");
+        setBusy(false);
+        return;
       } finally {
         if (!cancelled) setBusy(false);
       }
@@ -139,7 +175,10 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
   }, [mode]);
 
   const compact =
-    mode === "embedded" || mode === "confirm-redirect" || mode === "auth-stuck";
+    mode === "embedded" ||
+    mode === "confirm-redirect" ||
+    mode === "auth-stuck" ||
+    mode === "redirecting";
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-x-hidden bg-[var(--paper)] px-4 py-6 text-[var(--ink)] sm:px-6">
@@ -191,6 +230,12 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           {mode === "loading" && (
             <p className="text-center text-[14px] text-[var(--ink-muted)]">
               {busy ? "Finishing sign-in…" : "Loading sign-in…"}
+            </p>
+          )}
+
+          {mode === "redirecting" && (
+            <p className="text-center text-[14px] text-[var(--ink-muted)]">
+              Finishing sign-out…
             </p>
           )}
 
@@ -280,7 +325,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                 void createBootstrapSession(role)
                   .then(onSignedIn)
                   .catch((err: unknown) => {
-                    setError(err instanceof Error ? err.message : String(err));
+                    setError(formatAuthError(err));
                   })
                   .finally(() => setBusy(false));
               }}
@@ -311,7 +356,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             </form>
           )}
 
-          {error && mode !== "auth-stuck" && (
+          {error && mode !== "auth-stuck" && mode !== "redirecting" && (
             <p className="mt-3 text-[13px] text-red-700" role="alert">
               {error}
             </p>
