@@ -241,11 +241,23 @@ export function redirectInviteConfirmToPortal(): boolean {
   return true;
 }
 
-export async function catalystSignOut(redirectUrl = "/"): Promise<void> {
+export async function catalystSignOut(
+  redirectUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/?loggedOut=1`,
+): Promise<void> {
   try {
     await ensureCatalystSdk();
-    window.catalyst?.auth?.signOut?.(redirectUrl);
+    const auth = window.catalyst?.auth;
+    if (typeof auth?.signOut === "function") {
+      auth.signOut(redirectUrl);
+      return;
+    }
+    // SDK missing signOut — still leave the app on the logged-out URL.
+    window.location.replace(redirectUrl.startsWith("http") ? redirectUrl : `/?loggedOut=1`);
   } catch {
-    // ignore — JWT clear still happens in App
+    try {
+      window.location.replace("/?loggedOut=1");
+    } catch {
+      // ignore
+    }
   }
 }

@@ -28,6 +28,7 @@ import {
  */
 export function App() {
   const [session, setSession] = useState<AuthSession | null>(() => loadSession());
+  const [loggingOut, setLoggingOut] = useState(false);
   const [view, setView] = useState<AppView>(() => {
     const s = loadSession();
     return s ? homeView(s.views, s.homeView) : "risk";
@@ -37,6 +38,7 @@ export function App() {
 
   function onSignedIn(next: AuthSession) {
     clearLogoutPending();
+    setLoggingOut(false);
     saveSession(next);
     setSession(next);
     setView(homeView(next.views, next.homeView));
@@ -48,6 +50,7 @@ export function App() {
     const token = session?.accessToken;
     // Prevent LoginPage from auto-minting off a still-valid Catalyst cookie.
     markLogoutPending();
+    setLoggingOut(true);
     clearSession();
     setSession(null);
     setNetworkEntityId(null);
@@ -55,8 +58,9 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    // App shell does not load Catalyst SDK — signOut must load it first, then redirect.
-    void catalystSignOut("/");
+    // Full navigation to /?loggedOut=1 after Catalyst signOut — do not land on bare /
+    // or LoginPage will briefly boot and may auto-mint before the cookie dies.
+    void catalystSignOut(`${window.location.origin}/?loggedOut=1`);
   }
 
   function showNetworkFor(accusedId: string) {
@@ -67,6 +71,14 @@ export function App() {
   function showSimilarFor(firId: string) {
     setSimilarFirId(firId);
     setView("similar");
+  }
+
+  if (loggingOut) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-[var(--paper)] text-[var(--ink-muted)]">
+        <p className="text-[14px]">Signing out…</p>
+      </div>
+    );
   }
 
   if (!session) {

@@ -20,6 +20,15 @@ type LoginPageProps = {
 
 type Mode = "loading" | "embedded" | "fallback" | "confirm-redirect" | "auth-stuck";
 
+function consumeLoggedOutQuery(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("loggedOut") !== "1") return false;
+  params.delete("loggedOut");
+  const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, "", next || "/");
+  return true;
+}
+
 /**
  * Prefer Catalyst Embedded Auth iframe (mvp2/10). Falls back to role picker when
  * SDK/init.js is unavailable (local Vite) or Embedded fails to mount.
@@ -41,6 +50,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
+      const fromLogout = consumeLoggedOutQuery() || isLogoutPending();
+      if (fromLogout) {
+        markLogoutPending();
+      }
+
       const ok = await ensureCatalystSdk();
       if (cancelled) return;
 
@@ -50,12 +64,13 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      // After Logout: finish Catalyst sign-out if the cookie is still present, then
-      // show login — do not auto-mint (that was re-entering the app immediately).
-      if (isLogoutPending()) {
+      // After Logout: never auto-mint. Finish Catalyst sign-out if the cookie remains,
+      // then show the login UI. Clearing pending only after !authenticated avoids the
+      // race that re-entered the app with "Finishing sign-in…".
+      if (fromLogout || isLogoutPending()) {
         try {
           if (await isCatalystAuthenticated()) {
-            await catalystSignOut("/");
+            await catalystSignOut(`${window.location.origin}/?loggedOut=1`);
             return;
           }
         } catch {
@@ -128,33 +143,32 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       />
 
       <style>{`
-        /* Clip Catalyst's fixed ~520px iframe; active form stays at the top. */
+        /* Catalyst default box is ~520px; clip to content height so the card is not empty. */
         #catalyst-login {
           overflow: hidden;
-          max-height: 300px;
+          max-height: 220px;
         }
         #catalyst-login iframe {
           display: block;
           width: 100% !important;
           max-width: 100%;
-          height: 300px !important;
+          height: 220px !important;
           min-height: 0 !important;
           border: 0 !important;
-          /* Crop faint grey portal_logo / top chrome Catalyst leaves above "Sign in". */
-          margin-top: -8px;
+          margin-top: -12px;
         }
       `}</style>
 
-      <main className="relative w-full max-w-[26rem]">
-        <div className={`flex flex-col items-center text-center ${compact ? "mb-4" : "mb-8"}`}>
+      <main className="relative w-full max-w-[24rem]">
+        <div className={`flex flex-col items-center text-center ${compact ? "mb-3" : "mb-8"}`}>
           <img
             src="/aparadhkavach-logo.png"
             alt="AparadhKavach logo"
-            className={compact ? "mb-3 h-16 w-16" : "mb-5 h-28 w-28"}
+            className={compact ? "mb-2 h-14 w-14" : "mb-5 h-28 w-28"}
           />
           <h1
             className={`font-[family-name:var(--font-display)] font-normal tracking-tight text-[var(--ink)] ${
-              compact ? "text-[1.65rem]" : "text-[2rem]"
+              compact ? "text-[1.5rem]" : "text-[2rem]"
             }`}
           >
             AparadhKavach
@@ -167,7 +181,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           )}
         </div>
 
-        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow)] sm:p-5">
+        <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 shadow-[var(--shadow)] sm:p-4">
           {mode === "loading" && (
             <p className="text-center text-[14px] text-[var(--ink-muted)]">
               {busy ? "Finishing sign-in…" : "Loading sign-in…"}
@@ -215,7 +229,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
                 onClick={() => {
                   markLogoutPending();
-                  void catalystSignOut("/");
+                  void catalystSignOut(`${window.location.origin}/?loggedOut=1`);
                 }}
               >
                 Sign out of Catalyst & reload
@@ -235,15 +249,10 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
 
           {mode === "embedded" && (
             <>
-              <p className="mb-2 text-center text-[13px] text-[var(--ink-muted)]">
+              <p className="mb-1.5 text-center text-[13px] text-[var(--ink-muted)]">
                 Sign in with your AparadhKavach account
               </p>
-              <div id="catalyst-login" className="w-full [&:empty]:min-h-[12rem]" />
-              <p className="mt-3 text-center text-[11px] leading-snug text-[var(--ink-faint)]">
-                New users: open the invite link (after redeploy it jumps to{" "}
-                <span className="font-[family-name:var(--font-mono)]">accounts.zohoportal.in</span>
-                ), set password until Confirm=Yes, then sign in here. Or use the demo picker.
-              </p>
+              <div id="catalyst-login" className="w-full" />
               <button
                 type="button"
                 className="mt-2 w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
