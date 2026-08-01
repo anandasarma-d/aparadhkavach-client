@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createBootstrapSession } from "./api/authClient";
 import type { AuthSession } from "./auth/session";
+import { clearLogoutPending, isLogoutPending, markLogoutPending } from "./auth/session";
 import {
   catalystAvailable,
   catalystSignOut,
@@ -44,7 +45,26 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       if (cancelled) return;
 
       if (!ok || !catalystAvailable()) {
+        clearLogoutPending();
         setMode("fallback");
+        return;
+      }
+
+      // After Logout: finish Catalyst sign-out if the cookie is still present, then
+      // show login — do not auto-mint (that was re-entering the app immediately).
+      if (isLogoutPending()) {
+        try {
+          if (await isCatalystAuthenticated()) {
+            await catalystSignOut("/");
+            return;
+          }
+        } catch {
+          // fall through to login UI
+        }
+        if (!cancelled) {
+          clearLogoutPending();
+          setMode("embedded");
+        }
         return;
       }
 
@@ -194,8 +214,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                 type="button"
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
                 onClick={() => {
-                  catalystSignOut("/");
-                  window.location.assign("/");
+                  markLogoutPending();
+                  void catalystSignOut("/");
                 }}
               >
                 Sign out of Catalyst & reload

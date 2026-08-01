@@ -241,8 +241,9 @@ export function redirectInviteConfirmToPortal(): boolean {
   return true;
 }
 
-export function catalystSignOut(redirectUrl = "/"): void {
+export async function catalystSignOut(redirectUrl = "/"): Promise<void> {
   try {
+    await ensureCatalystSdk();
     window.catalyst?.auth?.signOut?.(redirectUrl);
   } catch {
     // ignore — JWT clear still happens in App

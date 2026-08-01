@@ -1,6 +1,8 @@
 import { parseAppViews, type AppRole, type AppView } from "../rbac/roleMatrix";
 
 const STORAGE_KEY = "aparadhkavach.auth.session";
+/** Set on Logout so LoginPage does not auto-mint from a lingering Catalyst cookie. */
+const LOGOUT_PENDING_KEY = "aparadhkavach.auth.logoutPending";
 
 export type AuthSession = {
   accessToken: string;
@@ -36,6 +38,18 @@ export function saveSession(session: AuthSession): void {
 
 export function clearSession(): void {
   sessionStorage.removeItem(STORAGE_KEY);
+}
+
+export function markLogoutPending(): void {
+  sessionStorage.setItem(LOGOUT_PENDING_KEY, "1");
+}
+
+export function clearLogoutPending(): void {
+  sessionStorage.removeItem(LOGOUT_PENDING_KEY);
+}
+
+export function isLogoutPending(): boolean {
+  return sessionStorage.getItem(LOGOUT_PENDING_KEY) === "1";
 }
 
 export function accessToken(): string | null {

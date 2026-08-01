@@ -2,8 +2,10 @@ import { useState, type ReactNode } from "react";
 import { revokeSession } from "./api/authClient";
 import { catalystSignOut } from "./auth/catalyst";
 import {
+  clearLogoutPending,
   clearSession,
   loadSession,
+  markLogoutPending,
   saveSession,
   type AuthSession,
 } from "./auth/session";
@@ -34,6 +36,7 @@ export function App() {
   const [similarFirId, setSimilarFirId] = useState<string | null>(null);
 
   function onSignedIn(next: AuthSession) {
+    clearLogoutPending();
     saveSession(next);
     setSession(next);
     setView(homeView(next.views, next.homeView));
@@ -43,6 +46,8 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
+    // Prevent LoginPage from auto-minting off a still-valid Catalyst cookie.
+    markLogoutPending();
     clearSession();
     setSession(null);
     setNetworkEntityId(null);
@@ -50,7 +55,8 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    catalystSignOut("/");
+    // App shell does not load Catalyst SDK — signOut must load it first, then redirect.
+    void catalystSignOut("/");
   }
 
   function showNetworkFor(accusedId: string) {
