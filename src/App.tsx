@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { revokeSession } from "./api/authClient";
-import { catalystSignOut, clearSignOutAttempted, loggedOutUrl } from "./auth/catalyst";
+import { catalystSignOut, clearSignOutAttempted, loggedOutUrl, markSignOutAttempted } from "./auth/catalyst";
 import {
   clearLogoutPending,
   clearSession,
@@ -49,9 +49,9 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
-    // Prevent LoginPage from auto-minting off a still-valid Catalyst cookie.
+    // Prevent LoginPage from auto-minting off a lingering Catalyst cookie.
     markLogoutPending();
-    clearSignOutAttempted();
+    markSignOutAttempted();
     setLoggingOut(true);
     clearSession();
     setSession(null);
@@ -60,8 +60,7 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    // Always return to public Slate host — Catalyst may otherwise drop us on
-    // catalystappexecutor.in and trip invite-redirect / signOut loops.
+    // signOut → executor /accounts/logout → bounce to zohoportal (clears cookies) → serviceurl.
     void catalystSignOut(loggedOutUrl());
   }
 

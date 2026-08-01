@@ -250,26 +250,15 @@ export function redirectInviteConfirmToPortal(): boolean {
 }
 
 /**
- * Catalyst `signOut(serviceurl)` lands on `…catalystappexecutor.in/accounts/logout?serviceurl=…`.
- * Slate SPA serves index.html for that path (same class as pconfirm) — finish by following
- * `serviceurl` (or our logged-out URL) on the top window.
+ * Catalyst `signOut(serviceurl)` lands on `…catalystappexecutor.in/accounts/logout?…`.
+ * Slate SPA swallows that path (same class as pconfirm) so cookies never clear → auto re-login.
+ * Bounce to **accounts.zohoportal.in** so Catalyst can finish logout, then follow `serviceurl`.
  */
 export function redirectCatalystLogoutPath(): boolean {
   if (!isCatalystLogoutPath()) return false;
-  const params = new URLSearchParams(window.location.search);
-  const serviceurl = params.get("serviceurl") || params.get("service_url");
-  let target = loggedOutUrl();
-  if (serviceurl) {
-    try {
-      const parsed = new URL(serviceurl);
-      if (!parsed.searchParams.has("loggedOut")) {
-        parsed.searchParams.set("loggedOut", "1");
-      }
-      target = parsed.toString();
-    } catch {
-      target = serviceurl;
-    }
-  }
+  if (window.location.hostname.toLowerCase().includes("zohoportal")) return false;
+
+  const target = `https://accounts.zohoportal.in${window.location.pathname}${window.location.search}${window.location.hash}`;
   const win = window.top ?? window;
   win.location.replace(target);
   return true;
@@ -277,14 +266,18 @@ export function redirectCatalystLogoutPath(): boolean {
 
 /**
  * D-081: when Catalyst posts service_url into the Embedded iframe, our SPA remounts
- * inside the frame → nested logos. Always promote to the top window on the public host.
+ * inside the frame → nested logos. Promote to the top window; keep logout intent.
  */
 export function breakOutOfAuthFrameIfNested(): boolean {
   if (window.self === window.top) return false;
   try {
     const top = window.top;
     if (!top) return false;
-    top.location.replace(`${appOrigin()}/`);
+    // Preserve logout — bare `/` auto-mints if Catalyst cookie still valid (regression).
+    const logout =
+      sessionStorage.getItem("aparadhkavach.auth.logoutPending") === "1" ||
+      new URLSearchParams(window.location.search).get("loggedOut") === "1";
+    top.location.replace(logout ? loggedOutUrl() : `${appOrigin()}/`);
     return true;
   } catch {
     // Cross-origin parent — cannot break out.
@@ -306,14 +299,20 @@ export function loggedOutUrl(): string {
   return `${appOrigin()}/?loggedOut=1`;
 }
 
-/** If we somehow stayed on catalystappexecutor (not a Catalyst /accounts path), bounce home. */
+/**
+ * Leftover top-level SPA on catalystappexecutor (not /accounts/*) → public host.
+ * Preserve logout query / pending so we do not auto-mint.
+ */
 export function redirectExecutorShellToPublicHost(): boolean {
   const host = window.location.hostname.toLowerCase();
   if (!host.includes("catalystappexecutor")) return false;
   if (isCatalystConfirmPath() || isCatalystLogoutPath()) return false;
-  // Allow Catalyst SDK paths under /__catalyst
   if (window.location.pathname.startsWith("/__catalyst")) return false;
-  window.location.replace(`${appOrigin()}/${window.location.search}${window.location.hash}`);
+
+  const logout =
+    sessionStorage.getItem("aparadhkavach.auth.logoutPending") === "1" ||
+    new URLSearchParams(window.location.search).get("loggedOut") === "1";
+  window.location.replace(logout ? loggedOutUrl() : `${appOrigin()}/`);
   return true;
 }
 
@@ -332,27 +331,20 @@ export function wasSignOutAttempted(): boolean {
 }
 
 export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
-  const finish = () => {
-    try {
-      const win = window.top ?? window;
-      win.location.replace(redirectUrl);
-    } catch {
-      window.location.replace(redirectUrl);
-    }
-  };
-
   try {
     await ensureCatalystSdk();
     const auth = window.catalyst?.auth;
     if (typeof auth?.signOut === "function") {
-      // SDK navigates to executor /accounts/logout; SPA swallows that path — we also
-      // force the public host after a short grace so logout never sticks on executor.
+      // Navigates to executor /accounts/logout — LoginPage bounces that to zohoportal.
       auth.signOut(redirectUrl);
-      window.setTimeout(finish, 2500);
       return;
     }
-    finish();
+    window.location.replace(redirectUrl);
   } catch {
-    finish();
+    try {
+      window.location.replace(redirectUrl);
+    } catch {
+      // ignore
+    }
   }
 }

@@ -25,7 +25,14 @@ type LoginPageProps = {
   onSignedIn: (session: AuthSession) => void;
 };
 
-type Mode = "loading" | "embedded" | "fallback" | "confirm-redirect" | "auth-stuck" | "redirecting";
+type Mode =
+  | "loading"
+  | "embedded"
+  | "fallback"
+  | "confirm-redirect"
+  | "auth-stuck"
+  | "redirecting"
+  | "post-logout";
 
 function consumeLoggedOutQuery(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -65,19 +72,17 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      // Catalyst signOut → executor /accounts/logout; SPA swallows it → follow serviceurl.
+      // Executor /accounts/logout is SPA-swallowed — bounce to zohoportal so cookies clear.
       if (redirectCatalystLogoutPath()) {
         setMode("redirecting");
         return;
       }
 
-      // Invite links hit Slate `/accounts/.../pconfirm` → SPA. Bounce to Zoho portal.
       if (redirectInviteConfirmToPortal()) {
         setMode("confirm-redirect");
         return;
       }
 
-      // Prefer public Slate host over catalystappexecutor shell (logout residue).
       if (redirectExecutorShellToPublicHost()) {
         setMode("redirecting");
         return;
@@ -92,28 +97,37 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       if (cancelled) return;
 
       if (!ok || !catalystAvailable()) {
-        clearLogoutPending();
+        if (fromLogout) {
+          // Still block auto paths; picker is ok after explicit logout.
+          clearLogoutPending();
+          clearSignOutAttempted();
+        }
         setMode("fallback");
         return;
       }
 
-      // After Logout: never auto-mint. Sign out at most once, then show login even if
-      // Catalyst still reports a session (breaks catalystappexecutor ↔ portal loops).
+      /*
+       * After Logout: never auto-mint and do not mount Embedded while a Catalyst
+       * session may still be valid — signIn() would bounce to service_url and mint
+       * straight back into the app (logout regression).
+       */
       if (fromLogout || isLogoutPending()) {
         try {
-          if ((await isCatalystAuthenticated()) && !wasSignOutAttempted()) {
+          const stillIn = await isCatalystAuthenticated();
+          if (stillIn && !wasSignOutAttempted()) {
             markSignOutAttempted();
             await catalystSignOut(loggedOutUrl());
             return;
           }
+          if (stillIn) {
+            // Cookie survived signOut swallow — require explicit user action.
+            if (!cancelled) setMode("post-logout");
+            return;
+          }
         } catch {
-          // fall through to login UI
+          // fall through to post-logout gate
         }
-        if (!cancelled) {
-          clearSignOutAttempted();
-          clearLogoutPending();
-          setMode("embedded");
-        }
+        if (!cancelled) setMode("post-logout");
         return;
       }
 
@@ -135,17 +149,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         }
       } catch (err: unknown) {
         if (cancelled) return;
-        const message = formatAuthError(err);
-        // D-082: stale Catalyst cookie + failed mint → force one sign-out instead of sticky card.
-        if (!wasSignOutAttempted()) {
-          markLogoutPending();
-          markSignOutAttempted();
-          setError(message);
-          setMode("redirecting");
-          await catalystSignOut(loggedOutUrl());
-          return;
-        }
-        setError(message);
+        // Do not auto sign-out here — that raced with logout and reminted (regression).
+        setError(formatAuthError(err));
         setMode("auth-stuck");
         setBusy(false);
         return;
@@ -174,11 +179,36 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
   }, [mode]);
 
+  async function beginSignInAfterLogout() {
+    setError(null);
+    setBusy(true);
+    try {
+      // User explicitly wants the login UI — drop logout gates.
+      clearLogoutPending();
+      clearSignOutAttempted();
+
+      if (await isCatalystAuthenticated()) {
+        // Still have a Catalyst cookie: clear it before showing Embedded, or we'd remint.
+        markLogoutPending();
+        markSignOutAttempted();
+        await catalystSignOut(loggedOutUrl());
+        return;
+      }
+      setMode("embedded");
+    } catch (err: unknown) {
+      setError(formatAuthError(err));
+      setMode("embedded");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const compact =
     mode === "embedded" ||
     mode === "confirm-redirect" ||
     mode === "auth-stuck" ||
-    mode === "redirecting";
+    mode === "redirecting" ||
+    mode === "post-logout";
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-x-hidden bg-[var(--paper)] px-4 py-6 text-[var(--ink)] sm:px-6">
@@ -237,6 +267,41 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             <p className="text-center text-[14px] text-[var(--ink-muted)]">
               Finishing sign-out…
             </p>
+          )}
+
+          {mode === "post-logout" && (
+            <div className="space-y-3 text-center">
+              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">Signed out</h2>
+              <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
+                AparadhKavach session cleared. Sign in again with email and password (or use the
+                demo role picker).
+              </p>
+              {error && (
+                <p className="text-left text-[13px] text-red-700" role="alert">
+                  {error}
+                </p>
+              )}
+              <button
+                type="button"
+                disabled={busy}
+                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)] disabled:opacity-60"
+                onClick={() => void beginSignInAfterLogout()}
+              >
+                {busy ? "Working…" : "Sign in with email"}
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
+                onClick={() => {
+                  clearLogoutPending();
+                  clearSignOutAttempted();
+                  setError(null);
+                  setMode("fallback");
+                }}
+              >
+                Use demo role picker
+              </button>
+            </div>
           )}
 
           {mode === "confirm-redirect" && (
@@ -356,7 +421,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             </form>
           )}
 
-          {error && mode !== "auth-stuck" && mode !== "redirecting" && (
+          {error && mode !== "auth-stuck" && mode !== "redirecting" && mode !== "post-logout" && (
             <p className="mt-3 text-[13px] text-red-700" role="alert">
               {error}
             </p>
