@@ -183,15 +183,24 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     setError(null);
     setBusy(true);
     try {
-      // User explicitly wants the login UI — drop logout gates.
+      // User explicitly wants to sign in — never call signOut here (that returned to
+      // Signed out forever when Catalyst cookies still present — D-086).
       clearLogoutPending();
       clearSignOutAttempted();
 
       if (await isCatalystAuthenticated()) {
-        // Still have a Catalyst cookie: clear it before showing Embedded, or we'd remint.
-        markLogoutPending();
-        markSignOutAttempted();
-        await catalystSignOut(loggedOutUrl());
+        // Cookie survived portal logout: re-enter app as that user (JWT was cleared).
+        const identity = await readCatalystIdentity();
+        if (!identity) {
+          throw new Error(
+            "Still signed in to Catalyst but could not read profile. Use Switch account or demo picker.",
+          );
+        }
+        const session = await createCatalystSession({
+          catalystUserId: identity.sub,
+          email: identity.email,
+        });
+        onSignedIn(session);
         return;
       }
       setMode("embedded");
@@ -201,6 +210,12 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function switchAccountAfterLogout() {
+    markLogoutPending();
+    markSignOutAttempted();
+    void catalystSignOut(loggedOutUrl());
   }
 
   const compact =
@@ -273,8 +288,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             <div className="space-y-3 text-center">
               <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">Signed out</h2>
               <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-                AparadhKavach session cleared. Sign in again with email and password (or use the
-                demo role picker).
+                AparadhKavach session cleared. Sign in again with email and password, switch
+                Catalyst account, or use the demo role picker.
               </p>
               {error && (
                 <p className="text-left text-[13px] text-red-700" role="alert">
@@ -288,6 +303,14 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                 onClick={() => void beginSignInAfterLogout()}
               >
                 {busy ? "Working…" : "Sign in with email"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)] disabled:opacity-60"
+                onClick={() => switchAccountAfterLogout()}
+              >
+                Switch account (Catalyst sign-out)
               </button>
               <button
                 type="button"

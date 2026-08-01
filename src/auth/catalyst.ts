@@ -249,10 +249,49 @@ export function redirectInviteConfirmToPortal(): boolean {
   return true;
 }
 
+/** Prefer the public Slate host — Catalyst signOut may land on catalystappexecutor.in. */
+export function appOrigin(): string {
+  const host = window.location.hostname.toLowerCase();
+  if (host.includes("onslate.in") || host.includes("localhost") || host === "127.0.0.1") {
+    return window.location.origin;
+  }
+  // Lane B workbench Slate (logout must not loop on catalystappexecutor.in).
+  return "https://aparadhkavach-wb.onslate.in";
+}
+
+export function loggedOutUrl(): string {
+  return `${appOrigin()}/?loggedOut=1`;
+}
+
+/** Lane B workbench ZAID (init.js). Used for portal logout when SPA swallows executor /accounts/logout. */
+export function resolveCatalystZaid(): string {
+  try {
+    const fromInit = (window as unknown as { catalyst?: { zaid?: string | number } }).catalyst
+      ?.zaid;
+    if (fromInit != null && String(fromInit).trim()) return String(fromInit).trim();
+  } catch {
+    // ignore
+  }
+  return "50044400287";
+}
+
+/**
+ * Hosted portal logout — clears Catalyst cookies. Prefer this over SDK signOut, which lands on
+ * executor `/accounts/logout` where our SPA swallows the page and cookies survive (D-084/D-086).
+ */
+export function portalLogoutUrl(redirectUrl = loggedOutUrl()): string {
+  const params = new URLSearchParams({
+    client_portal: "true",
+    zaid: resolveCatalystZaid(),
+    serviceurl: redirectUrl,
+    servicename: "ZOHOCATALYST",
+  });
+  return `https://accounts.zohoportal.in/accounts/logout?${params.toString()}`;
+}
+
 /**
  * Catalyst `signOut(serviceurl)` lands on `…catalystappexecutor.in/accounts/logout?…`.
- * Slate SPA swallows that path (same class as pconfirm) so cookies never clear → auto re-login.
- * Bounce to **accounts.zohoportal.in** so Catalyst can finish logout, then follow `serviceurl`.
+ * Slate SPA swallows that path — bounce to **accounts.zohoportal.in** so logout can finish.
  */
 export function redirectCatalystLogoutPath(): boolean {
   if (!isCatalystLogoutPath()) return false;
@@ -273,30 +312,14 @@ export function breakOutOfAuthFrameIfNested(): boolean {
   try {
     const top = window.top;
     if (!top) return false;
-    // Preserve logout — bare `/` auto-mints if Catalyst cookie still valid (regression).
     const logout =
       sessionStorage.getItem("aparadhkavach.auth.logoutPending") === "1" ||
       new URLSearchParams(window.location.search).get("loggedOut") === "1";
     top.location.replace(logout ? loggedOutUrl() : `${appOrigin()}/`);
     return true;
   } catch {
-    // Cross-origin parent — cannot break out.
     return false;
   }
-}
-
-/** Prefer the public Slate host — Catalyst signOut may land on catalystappexecutor.in. */
-export function appOrigin(): string {
-  const host = window.location.hostname.toLowerCase();
-  if (host.includes("onslate.in") || host.includes("localhost") || host === "127.0.0.1") {
-    return window.location.origin;
-  }
-  // Lane B workbench Slate (logout must not loop on catalystappexecutor.in).
-  return "https://aparadhkavach-wb.onslate.in";
-}
-
-export function loggedOutUrl(): string {
-  return `${appOrigin()}/?loggedOut=1`;
 }
 
 /**
@@ -330,21 +353,12 @@ export function wasSignOutAttempted(): boolean {
   return sessionStorage.getItem(SIGNOUT_ATTEMPTED_KEY) === "1";
 }
 
+/** Clear Catalyst session via portal logout (not executor SPA). */
 export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
   try {
-    await ensureCatalystSdk();
-    const auth = window.catalyst?.auth;
-    if (typeof auth?.signOut === "function") {
-      // Navigates to executor /accounts/logout — LoginPage bounces that to zohoportal.
-      auth.signOut(redirectUrl);
-      return;
-    }
-    window.location.replace(redirectUrl);
+    const win = window.top ?? window;
+    win.location.replace(portalLogoutUrl(redirectUrl));
   } catch {
-    try {
-      window.location.replace(redirectUrl);
-    } catch {
-      // ignore
-    }
+    window.location.replace(portalLogoutUrl(redirectUrl));
   }
 }
