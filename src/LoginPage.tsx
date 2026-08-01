@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
-import { createBootstrapSession } from "./api/authClient";
+import { createBootstrapSession, createCatalystSession } from "./api/authClient";
 import type { AuthSession } from "./auth/session";
 import { clearLogoutPending, isLogoutPending, markLogoutPending } from "./auth/session";
 import {
   catalystAvailable,
   catalystSignOut,
+  clearSignOutAttempted,
   ensureCatalystSdk,
   isCatalystAuthenticated,
+  loggedOutUrl,
+  markSignOutAttempted,
   redirectInviteConfirmToPortal,
   readCatalystIdentity,
   startEmbeddedSignIn,
+  wasSignOutAttempted,
 } from "./auth/catalyst";
 import { RoleMenu } from "./rbac/RoleMenu";
 import { DEFAULT_ROLE, type AppRole } from "./rbac/roleMatrix";
@@ -32,7 +36,8 @@ function consumeLoggedOutQuery(): boolean {
 /**
  * Prefer Catalyst Embedded Auth iframe (mvp2/10). Falls back to role picker when
  * SDK/init.js is unavailable (local Vite) or Embedded fails to mount.
- * JWT mint still uses AUTH_ALLOW_DEV_MINT until server-side Catalyst exchange lands.
+ * Embedded path mints via catalystUserId exchange (server looks up role). Role picker
+ * still needs AUTH_ALLOW_DEV_MINT on Auth Service.
  */
 export function LoginPage({ onSignedIn }: LoginPageProps) {
   const [mode, setMode] = useState<Mode>("loading");
@@ -64,19 +69,20 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      // After Logout: never auto-mint. Finish Catalyst sign-out if the cookie remains,
-      // then show the login UI. Clearing pending only after !authenticated avoids the
-      // race that re-entered the app with "Finishing sign-in…".
+      // After Logout: never auto-mint. Sign out at most once, then show login even if
+      // Catalyst still reports a session (breaks catalystappexecutor ↔ portal loops).
       if (fromLogout || isLogoutPending()) {
         try {
-          if (await isCatalystAuthenticated()) {
-            await catalystSignOut(`${window.location.origin}/?loggedOut=1`);
+          if ((await isCatalystAuthenticated()) && !wasSignOutAttempted()) {
+            markSignOutAttempted();
+            await catalystSignOut(loggedOutUrl());
             return;
           }
         } catch {
           // fall through to login UI
         }
         if (!cancelled) {
+          clearSignOutAttempted();
           clearLogoutPending();
           setMode("embedded");
         }
@@ -92,9 +98,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
               "Signed in to Catalyst but could not read user profile (getCurrentProjectUser returned empty).",
             );
           }
-          const session = await createBootstrapSession(identity.role, {
-            sub: identity.sub,
-            displayName: identity.displayName,
+          const session = await createCatalystSession({
+            catalystUserId: identity.sub,
+            email: identity.email,
           });
           if (!cancelled) onSignedIn(session);
           return;
@@ -229,7 +235,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
                 onClick={() => {
                   markLogoutPending();
-                  void catalystSignOut(`${window.location.origin}/?loggedOut=1`);
+                  clearSignOutAttempted();
+                  markSignOutAttempted();
+                  void catalystSignOut(loggedOutUrl());
                 }}
               >
                 Sign out of Catalyst & reload

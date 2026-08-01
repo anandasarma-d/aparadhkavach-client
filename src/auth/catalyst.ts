@@ -220,17 +220,14 @@ export function startEmbeddedSignIn(elementId: string): void {
   });
 }
 
-/** Invite set-password links land on Slate `/accounts/.../pconfirm` (SPA index). */
+/** Invite set-password links only — do not match every `/accounts/**` (logout uses those too). */
 export function isCatalystConfirmPath(pathname = window.location.pathname): boolean {
-  const path = pathname.toLowerCase();
-  return path.includes("/pconfirm") || path.includes("/accounts/");
+  return pathname.toLowerCase().includes("/pconfirm");
 }
 
 /**
- * Hosted Auth is already enabled on workbench; the real Confirm Password UI is on
- * `accounts.zohoportal.in`. Slate catches `/accounts/**` and serves our SPA instead,
- * so invite emails appear to "only open Sign-In". Bounce to the portal with the same
- * path + digest query.
+ * Hosted Auth Confirm Password UI is on `accounts.zohoportal.in`.
+ * Slate SPA swallows `/accounts/.../pconfirm`, so bounce invite links to the portal.
  */
 export function redirectInviteConfirmToPortal(): boolean {
   if (!isCatalystConfirmPath()) return false;
@@ -241,9 +238,35 @@ export function redirectInviteConfirmToPortal(): boolean {
   return true;
 }
 
-export async function catalystSignOut(
-  redirectUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/?loggedOut=1`,
-): Promise<void> {
+/** Prefer the public Slate host — Catalyst signOut may land on catalystappexecutor.in. */
+export function appOrigin(): string {
+  const host = window.location.hostname.toLowerCase();
+  if (host.includes("onslate.in") || host.includes("localhost") || host === "127.0.0.1") {
+    return window.location.origin;
+  }
+  // Lane B workbench Slate (logout must not loop on catalystappexecutor.in).
+  return "https://aparadhkavach-wb.onslate.in";
+}
+
+export function loggedOutUrl(): string {
+  return `${appOrigin()}/?loggedOut=1`;
+}
+
+const SIGNOUT_ATTEMPTED_KEY = "aparadhkavach.auth.signOutAttempted";
+
+export function markSignOutAttempted(): void {
+  sessionStorage.setItem(SIGNOUT_ATTEMPTED_KEY, "1");
+}
+
+export function clearSignOutAttempted(): void {
+  sessionStorage.removeItem(SIGNOUT_ATTEMPTED_KEY);
+}
+
+export function wasSignOutAttempted(): boolean {
+  return sessionStorage.getItem(SIGNOUT_ATTEMPTED_KEY) === "1";
+}
+
+export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
   try {
     await ensureCatalystSdk();
     const auth = window.catalyst?.auth;
@@ -251,11 +274,10 @@ export async function catalystSignOut(
       auth.signOut(redirectUrl);
       return;
     }
-    // SDK missing signOut — still leave the app on the logged-out URL.
-    window.location.replace(redirectUrl.startsWith("http") ? redirectUrl : `/?loggedOut=1`);
+    window.location.replace(redirectUrl);
   } catch {
     try {
-      window.location.replace("/?loggedOut=1");
+      window.location.replace(redirectUrl);
     } catch {
       // ignore
     }

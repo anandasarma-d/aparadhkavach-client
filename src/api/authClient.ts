@@ -10,13 +10,7 @@ type SessionResponse = {
   homeView: string;
 };
 
-type MintBody = {
-  role: AppRole;
-  sub?: string;
-  displayName?: string;
-};
-
-async function mintSession(body: MintBody): Promise<AuthSession> {
+async function postSession(body: Record<string, unknown>): Promise<AuthSession> {
   const base = apiGatewayBaseUrl();
   const res = await fetch(`${base}/v1/auth/sessions`, {
     method: "POST",
@@ -44,12 +38,26 @@ async function mintSession(body: MintBody): Promise<AuthSession> {
   };
 }
 
-/** Bootstrap / post-Embedded mint via AUTH_ALLOW_DEV_MINT (role from Catalyst user or picker). */
+/**
+ * Production exchange: Auth Service looks up Catalyst user by id and mints from the
+ * server-side role (client-supplied role is ignored).
+ */
+export async function createCatalystSession(opts: {
+  catalystUserId: string;
+  email?: string;
+}): Promise<AuthSession> {
+  return postSession({
+    catalystUserId: opts.catalystUserId,
+    email: opts.email,
+  });
+}
+
+/** Bootstrap / demo role picker — requires AUTH_ALLOW_DEV_MINT=true on Auth Service. */
 export async function createBootstrapSession(
   role: AppRole,
   opts?: { sub?: string; displayName?: string },
 ): Promise<AuthSession> {
-  return mintSession({
+  return postSession({
     role,
     sub: opts?.sub,
     displayName: opts?.displayName,

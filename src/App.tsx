@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { revokeSession } from "./api/authClient";
-import { catalystSignOut } from "./auth/catalyst";
+import { catalystSignOut, clearSignOutAttempted, loggedOutUrl } from "./auth/catalyst";
 import {
   clearLogoutPending,
   clearSession,
@@ -38,6 +38,7 @@ export function App() {
 
   function onSignedIn(next: AuthSession) {
     clearLogoutPending();
+    clearSignOutAttempted();
     setLoggingOut(false);
     saveSession(next);
     setSession(next);
@@ -50,6 +51,7 @@ export function App() {
     const token = session?.accessToken;
     // Prevent LoginPage from auto-minting off a still-valid Catalyst cookie.
     markLogoutPending();
+    clearSignOutAttempted();
     setLoggingOut(true);
     clearSession();
     setSession(null);
@@ -58,9 +60,9 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    // Full navigation to /?loggedOut=1 after Catalyst signOut — do not land on bare /
-    // or LoginPage will briefly boot and may auto-mint before the cookie dies.
-    void catalystSignOut(`${window.location.origin}/?loggedOut=1`);
+    // Always return to public Slate host — Catalyst may otherwise drop us on
+    // catalystappexecutor.in and trip invite-redirect / signOut loops.
+    void catalystSignOut(loggedOutUrl());
   }
 
   function showNetworkFor(accusedId: string) {
