@@ -9,6 +9,7 @@ import {
   clearSignOutAttempted,
   consumeShowLoginQuery,
   ensureCatalystSdk,
+  hostedAuthLoginUrl,
   isCatalystAuthenticated,
   loggedOutUrl,
   markSignOutAttempted,
@@ -16,7 +17,6 @@ import {
   redirectExecutorShellToPublicHost,
   redirectInviteConfirmToPortal,
   readCatalystIdentity,
-  showLoginUrl,
   startEmbeddedSignIn,
   wasSignOutAttempted,
 } from "./auth/catalyst";
@@ -190,7 +190,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
   }, [mode]);
 
-  /** Open email/password form — clear Catalyst first if a cookie is still present. */
+  /** Open email/password — if Catalyst cookie remains, go to Hosted login (not showLogin loop). */
   async function beginSignInAfterLogout() {
     setError(null);
     setBusy(true);
@@ -199,9 +199,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       clearSignOutAttempted();
 
       if (await isCatalystAuthenticated()) {
-        // Must clear cookie or Embedded signIn auto-enters the same user (no email form).
         markSignOutAttempted();
-        await catalystSignOut(showLoginUrl());
+        // Hosted /__catalyst/auth/login is a real Catalyst page (not SPA) — user can enter email.
+        await catalystSignOut(hostedAuthLoginUrl());
         return;
       }
       setMode("embedded");
@@ -213,11 +213,33 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
   }
 
-  /** Always force Catalyst logout, then showLogin (Embedded) — not Signed out again. */
+  /** Force Catalyst sign-out, then Hosted login form (breaks session-stuck Retry loop). */
   function switchAccountAfterLogout() {
     markSignOutAttempted();
     clearLogoutPending();
-    void catalystSignOut(showLoginUrl());
+    void catalystSignOut(hostedAuthLoginUrl());
+  }
+
+  async function continueAsCatalystUser() {
+    setError(null);
+    setBusy(true);
+    try {
+      clearLogoutPending();
+      clearSignOutAttempted();
+      const identity = await readCatalystIdentity();
+      if (!identity) {
+        throw new Error("Could not read Catalyst profile.");
+      }
+      const session = await createCatalystSession({
+        catalystUserId: identity.sub,
+        email: identity.email,
+      });
+      onSignedIn(session);
+    } catch (err: unknown) {
+      setError(formatAuthError(err));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const compact =
@@ -312,7 +334,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)] disabled:opacity-60"
                 onClick={() => switchAccountAfterLogout()}
               >
-                Switch account (Catalyst sign-out)
+                Switch account (Hosted sign-in)
               </button>
               <button
                 type="button"
@@ -335,16 +357,30 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                 Catalyst session still active
               </h2>
               <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-                Browser still has a Catalyst login cookie, so the email form cannot open (it would
-                skip straight into the same user). Retry Catalyst sign-out, or use the demo picker.
+                The browser still has a Catalyst login cookie, so Embedded sign-in would skip the
+                email form. Continue as that user, open Catalyst Hosted sign-in (different account),
+                or use the demo picker.
               </p>
+              {error && (
+                <p className="text-left text-[13px] text-red-700" role="alert">
+                  {error}
+                </p>
+              )}
               <button
                 type="button"
                 disabled={busy}
                 className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)] disabled:opacity-60"
+                onClick={() => void continueAsCatalystUser()}
+              >
+                {busy ? "Working…" : "Continue as current Catalyst user"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)] disabled:opacity-60"
                 onClick={() => switchAccountAfterLogout()}
               >
-                Retry Catalyst sign-out
+                Sign in with different account (Hosted)
               </button>
               <button
                 type="button"
