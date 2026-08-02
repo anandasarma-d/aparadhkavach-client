@@ -7,6 +7,7 @@ import {
   catalystAvailable,
   catalystSignOut,
   clearSignOutAttempted,
+  consumeShowLoginQuery,
   ensureCatalystSdk,
   isCatalystAuthenticated,
   loggedOutUrl,
@@ -15,6 +16,7 @@ import {
   redirectExecutorShellToPublicHost,
   redirectInviteConfirmToPortal,
   readCatalystIdentity,
+  showLoginUrl,
   startEmbeddedSignIn,
   wasSignOutAttempted,
 } from "./auth/catalyst";
@@ -32,7 +34,8 @@ type Mode =
   | "confirm-redirect"
   | "auth-stuck"
   | "redirecting"
-  | "post-logout";
+  | "post-logout"
+  | "session-stuck";
 
 function consumeLoggedOutQuery(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -66,13 +69,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     let cancelled = false;
 
     async function boot() {
-      // D-081: SPA loaded inside Embedded iframe after service_url → break to top.
       if (breakOutOfAuthFrameIfNested()) {
         setMode("redirecting");
         return;
       }
 
-      // Executor /accounts/logout is SPA-swallowed — bounce to zohoportal so cookies clear.
       if (redirectCatalystLogoutPath()) {
         setMode("redirecting");
         return;
@@ -88,6 +89,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
+      const wantEmbedded = consumeShowLoginQuery();
       const fromLogout = consumeLoggedOutQuery() || isLogoutPending();
       if (fromLogout) {
         markLogoutPending();
@@ -97,8 +99,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       if (cancelled) return;
 
       if (!ok || !catalystAvailable()) {
-        if (fromLogout) {
-          // Still block auto paths; picker is ok after explicit logout.
+        if (fromLogout || wantEmbedded) {
           clearLogoutPending();
           clearSignOutAttempted();
         }
@@ -107,9 +108,26 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       }
 
       /*
-       * After Logout: never auto-mint and do not mount Embedded while a Catalyst
-       * session may still be valid — signIn() would bounce to service_url and mint
-       * straight back into the app (logout regression).
+       * showLogin=1: after Switch account / Sign in forced a Catalyst logout.
+       * Never auto-mint — only Embedded (or stuck UI if cookie survived).
+       */
+      if (wantEmbedded) {
+        clearLogoutPending();
+        clearSignOutAttempted();
+        try {
+          if (await isCatalystAuthenticated()) {
+            if (!cancelled) setMode("session-stuck");
+            return;
+          }
+        } catch {
+          // treat as signed out
+        }
+        if (!cancelled) setMode("embedded");
+        return;
+      }
+
+      /*
+       * After app Logout: never auto-mint / never mount Embedded while cookie may linger.
        */
       if (fromLogout || isLogoutPending()) {
         try {
@@ -119,13 +137,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             await catalystSignOut(loggedOutUrl());
             return;
           }
-          if (stillIn) {
-            // Cookie survived signOut swallow — require explicit user action.
-            if (!cancelled) setMode("post-logout");
-            return;
-          }
         } catch {
-          // fall through to post-logout gate
+          // fall through
         }
         if (!cancelled) setMode("post-logout");
         return;
@@ -149,7 +162,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         }
       } catch (err: unknown) {
         if (cancelled) return;
-        // Do not auto sign-out here — that raced with logout and reminted (regression).
         setError(formatAuthError(err));
         setMode("auth-stuck");
         setBusy(false);
@@ -165,7 +177,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     return () => {
       cancelled = true;
     };
-    // Intentionally once on mount — onSignedIn is stable enough for this gate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -179,28 +190,18 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
   }, [mode]);
 
+  /** Open email/password form — clear Catalyst first if a cookie is still present. */
   async function beginSignInAfterLogout() {
     setError(null);
     setBusy(true);
     try {
-      // User explicitly wants to sign in — never call signOut here (that returned to
-      // Signed out forever when Catalyst cookies still present — D-086).
       clearLogoutPending();
       clearSignOutAttempted();
 
       if (await isCatalystAuthenticated()) {
-        // Cookie survived portal logout: re-enter app as that user (JWT was cleared).
-        const identity = await readCatalystIdentity();
-        if (!identity) {
-          throw new Error(
-            "Still signed in to Catalyst but could not read profile. Use Switch account or demo picker.",
-          );
-        }
-        const session = await createCatalystSession({
-          catalystUserId: identity.sub,
-          email: identity.email,
-        });
-        onSignedIn(session);
+        // Must clear cookie or Embedded signIn auto-enters the same user (no email form).
+        markSignOutAttempted();
+        await catalystSignOut(showLoginUrl());
         return;
       }
       setMode("embedded");
@@ -212,10 +213,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
   }
 
+  /** Always force Catalyst logout, then showLogin (Embedded) — not Signed out again. */
   function switchAccountAfterLogout() {
-    markLogoutPending();
     markSignOutAttempted();
-    void catalystSignOut(loggedOutUrl());
+    clearLogoutPending();
+    void catalystSignOut(showLoginUrl());
   }
 
   const compact =
@@ -223,7 +225,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     mode === "confirm-redirect" ||
     mode === "auth-stuck" ||
     mode === "redirecting" ||
-    mode === "post-logout";
+    mode === "post-logout" ||
+    mode === "session-stuck";
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-x-hidden bg-[var(--paper)] px-4 py-6 text-[var(--ink)] sm:px-6">
@@ -233,7 +236,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       />
 
       <style>{`
-        /* Catalyst default box is ~520px; clip to content height so the card is not empty. */
         #catalyst-login {
           overflow: hidden;
           max-height: 220px;
@@ -288,8 +290,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             <div className="space-y-3 text-center">
               <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">Signed out</h2>
               <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-                AparadhKavach session cleared. Sign in again with email and password, switch
-                Catalyst account, or use the demo role picker.
+                AparadhKavach session cleared. Sign in with email/password, switch Catalyst
+                account, or use the demo role picker.
               </p>
               {error && (
                 <p className="text-left text-[13px] text-red-700" role="alert">
@@ -319,6 +321,37 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                   clearLogoutPending();
                   clearSignOutAttempted();
                   setError(null);
+                  setMode("fallback");
+                }}
+              >
+                Use demo role picker
+              </button>
+            </div>
+          )}
+
+          {mode === "session-stuck" && (
+            <div className="space-y-3 text-center">
+              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">
+                Catalyst session still active
+              </h2>
+              <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
+                Browser still has a Catalyst login cookie, so the email form cannot open (it would
+                skip straight into the same user). Retry Catalyst sign-out, or use the demo picker.
+              </p>
+              <button
+                type="button"
+                disabled={busy}
+                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)] disabled:opacity-60"
+                onClick={() => switchAccountAfterLogout()}
+              >
+                Retry Catalyst sign-out
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
+                onClick={() => {
+                  clearLogoutPending();
+                  clearSignOutAttempted();
                   setMode("fallback");
                 }}
               >
@@ -444,11 +477,15 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             </form>
           )}
 
-          {error && mode !== "auth-stuck" && mode !== "redirecting" && mode !== "post-logout" && (
-            <p className="mt-3 text-[13px] text-red-700" role="alert">
-              {error}
-            </p>
-          )}
+          {error &&
+            mode !== "auth-stuck" &&
+            mode !== "redirecting" &&
+            mode !== "post-logout" &&
+            mode !== "session-stuck" && (
+              <p className="mt-3 text-[13px] text-red-700" role="alert">
+                {error}
+              </p>
+            )}
         </div>
       </main>
     </div>

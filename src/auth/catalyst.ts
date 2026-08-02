@@ -263,6 +263,20 @@ export function loggedOutUrl(): string {
   return `${appOrigin()}/?loggedOut=1`;
 }
 
+/** After portal logout, land here to open Embedded — never auto-mint (D-086/D-087). */
+export function showLoginUrl(): string {
+  return `${appOrigin()}/?showLogin=1`;
+}
+
+export function consumeShowLoginQuery(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("showLogin") !== "1") return false;
+  params.delete("showLogin");
+  const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, "", next || "/");
+  return true;
+}
+
 /** Lane B workbench ZAID (init.js). Used for portal logout when SPA swallows executor /accounts/logout. */
 export function resolveCatalystZaid(): string {
   try {
@@ -276,7 +290,7 @@ export function resolveCatalystZaid(): string {
 }
 
 /**
- * Hosted portal logout — clears Catalyst cookies. Prefer this over SDK signOut, which lands on
+ * Hosted portal logout — clears Catalyst cookies. Prefer this over SDK signOut alone, which lands on
  * executor `/accounts/logout` where our SPA swallows the page and cookies survive (D-084/D-086).
  */
 export function portalLogoutUrl(redirectUrl = loggedOutUrl()): string {
@@ -315,7 +329,10 @@ export function breakOutOfAuthFrameIfNested(): boolean {
     const logout =
       sessionStorage.getItem("aparadhkavach.auth.logoutPending") === "1" ||
       new URLSearchParams(window.location.search).get("loggedOut") === "1";
-    top.location.replace(logout ? loggedOutUrl() : `${appOrigin()}/`);
+    const showLogin = new URLSearchParams(window.location.search).get("showLogin") === "1";
+    top.location.replace(
+      logout ? loggedOutUrl() : showLogin ? showLoginUrl() : `${appOrigin()}/`,
+    );
     return true;
   } catch {
     return false;
@@ -335,7 +352,10 @@ export function redirectExecutorShellToPublicHost(): boolean {
   const logout =
     sessionStorage.getItem("aparadhkavach.auth.logoutPending") === "1" ||
     new URLSearchParams(window.location.search).get("loggedOut") === "1";
-  window.location.replace(logout ? loggedOutUrl() : `${appOrigin()}/`);
+  const showLogin = new URLSearchParams(window.location.search).get("showLogin") === "1";
+  window.location.replace(
+    logout ? loggedOutUrl() : showLogin ? showLoginUrl() : `${appOrigin()}/`,
+  );
   return true;
 }
 
@@ -353,11 +373,31 @@ export function wasSignOutAttempted(): boolean {
   return sessionStorage.getItem(SIGNOUT_ATTEMPTED_KEY) === "1";
 }
 
-/** Clear Catalyst session via portal logout (not executor SPA). */
+/** Clear Catalyst session via portal logout, then land on redirectUrl. */
 export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
   try {
-    const win = window.top ?? window;
-    win.location.replace(portalLogoutUrl(redirectUrl));
+    await ensureCatalystSdk();
+    const auth = window.catalyst?.auth;
+    // Prefer SDK so Catalyst clears its cookies; it navigates to executor /accounts/logout
+    // which we bounce to the portal (redirectCatalystLogoutPath). Pass final destination
+    // as serviceurl so portal returns to redirectUrl after logout.
+    if (typeof auth?.signOut === "function") {
+      auth.signOut(redirectUrl);
+      // Fallback if SPA swallows logout and never leaves this page.
+      window.setTimeout(() => {
+        try {
+          (window.top ?? window).location.replace(portalLogoutUrl(redirectUrl));
+        } catch {
+          window.location.replace(portalLogoutUrl(redirectUrl));
+        }
+      }, 1200);
+      return;
+    }
+  } catch {
+    // fall through to portal
+  }
+  try {
+    (window.top ?? window).location.replace(portalLogoutUrl(redirectUrl));
   } catch {
     window.location.replace(portalLogoutUrl(redirectUrl));
   }
