@@ -1,5 +1,5 @@
 /**
- * Client view registry (mvp2/10).
+ * Client view registry (mvp2/10 + qa from mvp2/11).
  *
  * Capability matrix SoT is auth-service (`views[]` on session/JWT). This module only
  * knows how to label/order view ids returned by the server.
@@ -7,16 +7,17 @@
 
 export type AppRole = "INVESTIGATOR" | "ANALYST" | "SUPERVISOR" | "POLICYMAKER";
 
-export type AppView = "risk" | "hotspots" | "network" | "similar";
+export type AppView = "risk" | "hotspots" | "network" | "similar" | "qa";
 
 /** Canonical left-to-right tab order. */
-export const NAV_ORDER: readonly AppView[] = ["risk", "hotspots", "network", "similar"];
+export const NAV_ORDER: readonly AppView[] = ["risk", "hotspots", "network", "similar", "qa"];
 
 export const VIEW_LABELS: Record<AppView, string> = {
   risk: "Risk lookup",
   hotspots: "Hotspots",
   network: "Network",
   similar: "Similar cases",
+  qa: "Q&A",
 };
 
 /** Bootstrap mint UI only — not the capability matrix. */

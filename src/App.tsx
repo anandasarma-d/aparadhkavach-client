@@ -12,6 +12,7 @@ import {
 import { HotspotPage } from "./HotspotPage";
 import { LoginPage } from "./LoginPage";
 import { NetworkPage } from "./NetworkPage";
+import { QaPage } from "./QaPage";
 import { RiskLookupPage } from "./RiskLookupPage";
 import { SimilarCasesPage } from "./SimilarCasesPage";
 import {
@@ -140,6 +141,7 @@ export function App() {
         />
       )}
       {view === "similar" && <SimilarCasesPage initialFirId={similarFirId} />}
+      {view === "qa" && <QaPage />}
     </div>
   );
 }

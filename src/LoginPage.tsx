@@ -290,7 +290,7 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           {!compact && (
             <p className="mt-2 max-w-[23rem] text-[14.5px] leading-relaxed text-[var(--ink-muted)]">
               Crime Intelligence Platform for Karnataka Police — Support for risk
-              lookup, hotspot forecasts, criminal networks, and similar cases.
+              lookup, hotspot forecasts, criminal networks, similar cases, and Q&amp;A.
             </p>
           )}
         </div>
