@@ -5,6 +5,9 @@ import { DEMO_FIRS } from "./lib/demoFirs";
 
 type SeedMode = "accused" | "fir";
 
+const ACCUSED_ID_PATTERN = /^ACC-[A-Za-z0-9_-]+$/i;
+const FIR_ID_PATTERN = /^FIR-[A-Za-z0-9_-]+$/i;
+
 /**
  * Single-shot citation Q&A (mvp2/11). Honesty label: v1 slice of the Graph-RAC pipeline.
  */
@@ -19,6 +22,13 @@ export function QaPage() {
     e.preventDefault();
     const seed = query.trim();
     if (!seed) return;
+
+    const mismatch = validateSeedForMode(mode, seed);
+    if (mismatch) {
+      setError(mismatch);
+      setResult(null);
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -40,12 +50,26 @@ export function QaPage() {
     setMode("accused");
     setQuery(id);
     setError(null);
+    setResult(null);
   }
 
   function pickFir(id: string) {
     setMode("fir");
     setQuery(id);
     setError(null);
+    setResult(null);
+  }
+
+  function selectMode(next: SeedMode) {
+    setMode(next);
+    setError(null);
+    setResult(null);
+    // Keep typed value, but warn if it clearly belongs to the other tab.
+    const seed = query.trim();
+    if (seed) {
+      const mismatch = validateSeedForMode(next, seed);
+      if (mismatch) setError(mismatch);
+    }
   }
 
   return (
@@ -67,10 +91,10 @@ export function QaPage() {
 
       <form onSubmit={onSubmit} className="mb-5 space-y-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Seed type">
-          <ModeChip active={mode === "accused"} onClick={() => setMode("accused")}>
+          <ModeChip active={mode === "accused"} onClick={() => selectMode("accused")}>
             Accused
           </ModeChip>
-          <ModeChip active={mode === "fir"} onClick={() => setMode("fir")}>
+          <ModeChip active={mode === "fir"} onClick={() => selectMode("fir")}>
             FIR
           </ModeChip>
         </div>
@@ -161,6 +185,30 @@ function ModeChip({
       {children}
     </button>
   );
+}
+
+/** Returns an officer-facing error, or null when the id matches the selected tab. */
+export function validateSeedForMode(mode: SeedMode, seed: string): string | null {
+  const id = seed.trim();
+  if (!id) return "Enter an id to ask.";
+
+  if (mode === "accused") {
+    if (FIR_ID_PATTERN.test(id)) {
+      return `“${id}” is an FIR id. Switch to the FIR tab, or enter an accused id (ACC-…).`;
+    }
+    if (!ACCUSED_ID_PATTERN.test(id)) {
+      return `Accused id must look like ACC-00040 (got “${id}”).`;
+    }
+    return null;
+  }
+
+  if (ACCUSED_ID_PATTERN.test(id)) {
+    return `“${id}” is an accused id. Switch to the Accused tab, or enter an FIR id (FIR-…).`;
+  }
+  if (!FIR_ID_PATTERN.test(id)) {
+    return `FIR id must look like FIR-003276 (got “${id}”).`;
+  }
+  return null;
 }
 
 function QueryAnswerCard({ result }: { result: QueryResult }) {
