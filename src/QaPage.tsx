@@ -56,11 +56,12 @@ export function QaPage() {
           Q&amp;A with citations
         </h1>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--ink-muted)]">
-          Enter one accused id or FIR. Orchestration assembles Investigation context and a Neo4j
-          1-hop neighborhood, then asks Claude once.
+          Enter one accused id or FIR. The system assembles investigation context and a 1-hop graph
+          neighborhood, then asks the model once.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          v1 slice of the Graph-RAC pipeline — not multi-turn, not voice, not PgVector on this path.
+          v1 slice of the Graph-RAC pipeline — not multi-turn, not voice, not vector search on this
+          path.
         </p>
       </header>
 
@@ -123,7 +124,7 @@ export function QaPage() {
 
       {loading && (
         <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
-          Assembling context and calling Claude…
+          Assembling context and calling the model…
         </p>
       )}
 
@@ -163,6 +164,12 @@ function ModeChip({
 }
 
 function QueryAnswerCard({ result }: { result: QueryResult }) {
+  const softFail =
+    result.confidenceScore === 0 &&
+    /unusable structured response|not configured|timed out|call failed|interrupted/i.test(
+      result.answer,
+    );
+
   return (
     <div className="space-y-4">
       <article className="card">
@@ -173,29 +180,33 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
           <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-[var(--ink)]">
             {result.answer}
           </p>
-          <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-            {result.reasoningSummary}
-          </p>
-          <p className="font-[family-name:var(--font-mono)] text-[11.5px] text-[var(--ink-faint)]">
-            confidence {result.confidenceScore.toFixed(2)} · {result.latencyMs} ms ·{" "}
-            {result.conversationId}
-          </p>
+          {!softFail && (
+            <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
+              {result.reasoningSummary}
+            </p>
+          )}
+          <QueryMetaBand result={result} softFail={softFail} />
         </div>
       </article>
 
-      <div>
-        <p className="section-label">Evidence sources</p>
-        <div className="flex flex-wrap gap-1.5">
-          {result.evidenceSources.map((id) => (
-            <span
-              key={id}
-              className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink)]"
-            >
-              {id}
-            </span>
-          ))}
+      {result.evidenceSources.length > 0 && (
+        <div>
+          <p className="section-label">Evidence sources</p>
+          <p className="mb-2 text-[12px] text-[var(--ink-faint)]">
+            Seed and other cited ids not listed under Related FIRs / entities.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {result.evidenceSources.map((id) => (
+              <span
+                key={id}
+                className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink)]"
+              >
+                {id}
+              </span>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {result.relatedFirs.length > 0 && (
         <div>
@@ -227,6 +238,49 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function QueryMetaBand({ result, softFail }: { result: QueryResult; softFail: boolean }) {
+  const latencySec = (result.latencyMs / 1000).toFixed(1);
+  const confidencePct = Math.round(result.confidenceScore * 100);
+
+  return (
+    <div
+      className="mt-1 flex flex-wrap gap-2 rounded-md border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-2.5"
+      aria-label="Response metadata"
+    >
+      <MetaChip label="Confidence" value={softFail ? "—" : `${confidencePct}%`} emphasize />
+      <MetaChip label="Time" value={`${latencySec}s`} />
+      <MetaChip label="Session" value={result.conversationId} mono />
+    </div>
+  );
+}
+
+function MetaChip({
+  label,
+  value,
+  emphasize = false,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  emphasize?: boolean;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-[7rem] flex-1">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--accent-ink)]">
+        {label}
+      </p>
+      <p
+        className={`mt-0.5 text-[13px] font-semibold text-[var(--ink)] ${
+          mono ? "font-[family-name:var(--font-mono)] text-[12px]" : ""
+        } ${emphasize ? "text-[15px] text-[var(--accent-ink)]" : ""}`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
