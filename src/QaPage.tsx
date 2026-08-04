@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { askQuery, type QueryResult } from "./api/queryClient";
+import { useMemo, useState, type FormEvent } from "react";
+import { askQuery, type QueryResult, type RelatedEntity } from "./api/queryClient";
 import { DEMO_ACCUSED } from "./lib/demoAccused";
 import { DEMO_FIRS } from "./lib/demoFirs";
 
@@ -169,31 +169,53 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
     /unusable structured response|not configured|timed out|call failed|interrupted/i.test(
       result.answer,
     );
+  const briefingParas = useMemo(() => toParagraphs(result.answer), [result.answer]);
+  const reasoningParas = useMemo(
+    () => toParagraphs(humanizeOfficerProse(result.reasoningSummary)),
+    [result.reasoningSummary],
+  );
+  const entityGroups = useMemo(
+    () => groupRelatedEntities(result.relatedEntities),
+    [result.relatedEntities],
+  );
 
   return (
-    <div className="space-y-4">
-      <article className="card">
-        <header className="border-b border-[var(--line)] px-5 pb-3 pt-4">
-          <p className="section-label !mb-0">Answer</p>
-        </header>
+    <div className="space-y-5">
+      <article className="card overflow-hidden">
+        <SectionBand title="Case briefing" tone="primary" />
         <div className="space-y-3 px-5 py-4">
-          <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-[var(--ink)]">
-            {result.answer}
-          </p>
-          {!softFail && (
-            <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-              {result.reasoningSummary}
-            </p>
+          <div className="space-y-3">
+            {briefingParas.map((para, i) => (
+              <p
+                key={i}
+                className="text-[14.5px] leading-relaxed text-[var(--ink)]"
+              >
+                {humanizeOfficerProse(para)}
+              </p>
+            ))}
+          </div>
+          {!softFail && reasoningParas.length > 0 && (
+            <div className="space-y-2 border-t border-[var(--line)] pt-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ink-faint)]">
+                Why this reading
+              </p>
+              {reasoningParas.map((para, i) => (
+                <p key={i} className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
+                  {para}
+                </p>
+              ))}
+            </div>
           )}
           <QueryMetaBand result={result} softFail={softFail} />
         </div>
       </article>
 
       {result.evidenceSources.length > 0 && (
-        <div>
-          <p className="section-label">Evidence sources</p>
-          <p className="mb-2 text-[12px] text-[var(--ink-faint)]">
-            Seed and other cited ids not listed under Related FIRs / entities.
+        <section>
+          <SectionBand title="Evidence sources" tone="evidence" />
+          <p className="mb-2 mt-2 text-[12px] text-[var(--ink-faint)]">
+            Queried id and other cited ids not already listed under Related FIRs / people &amp;
+            places.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {result.evidenceSources.map((id) => (
@@ -205,13 +227,13 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
               </span>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {result.relatedFirs.length > 0 && (
-        <div>
-          <p className="section-label">Related FIRs</p>
-          <div className="flex flex-wrap gap-1.5">
+        <section>
+          <SectionBand title="Related FIRs" tone="firs" />
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {result.relatedFirs.map((id) => (
               <span
                 key={id}
@@ -221,23 +243,58 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
               </span>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {result.relatedEntities.length > 0 && (
-        <div>
-          <p className="section-label">Related entities</p>
-          <ul className="space-y-1.5 text-[13px]">
-            {result.relatedEntities.map((e) => (
-              <li key={e.id} className="text-[var(--ink-muted)]">
-                <span className="font-[family-name:var(--font-mono)] text-[var(--ink)]">{e.id}</span>
-                {e.type ? ` · ${e.type}` : ""}
-                {e.label ? ` · ${e.label}` : ""}
-              </li>
+      {entityGroups.length > 0 && (
+        <section>
+          <SectionBand title="Related people & places" tone="entities" />
+          <div className="mt-3 space-y-4">
+            {entityGroups.map((group) => (
+              <div key={group.title}>
+                <p className="mb-1.5 text-[12px] font-semibold text-[var(--accent-ink)]">
+                  {group.title}
+                </p>
+                <ul className="space-y-1.5 text-[13px]">
+                  {group.items.map((e) => (
+                    <li key={e.id} className="text-[var(--ink-muted)]">
+                      <span className="font-[family-name:var(--font-mono)] text-[var(--ink)]">
+                        {e.id}
+                      </span>
+                      {e.label ? ` · ${humanizeLabel(e.label)}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ))}
-          </ul>
-        </div>
+          </div>
+        </section>
       )}
+    </div>
+  );
+}
+
+type BandTone = "primary" | "evidence" | "firs" | "entities";
+
+function SectionBand({ title, tone }: { title: string; tone: BandTone }) {
+  const barClass =
+    tone === "primary"
+      ? "border-l-[var(--accent)]"
+      : tone === "evidence"
+        ? "border-l-[#9a7340]"
+        : tone === "firs"
+          ? "border-l-[#3d5a80]"
+          : "border-l-[#4a6741]";
+
+  return (
+    <div
+      className={`rounded-md border border-[var(--line)] border-l-4 bg-[var(--surface-2)] px-3.5 py-2 ${barClass}`}
+      role="heading"
+      aria-level={2}
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--accent-ink)]">
+        {title}
+      </p>
     </div>
   );
 }
@@ -283,4 +340,120 @@ function MetaChip({
       </p>
     </div>
   );
+}
+
+/** Split model text into readable paragraphs (blank lines, else ~2 sentences each). */
+export function toParagraphs(text: string): string[] {
+  const trimmed = text?.trim() ?? "";
+  if (!trimmed) return [];
+  const byBlank = trimmed
+    .split(/\n\s*\n/)
+    .map((p) => p.replace(/\s*\n\s*/g, " ").trim())
+    .filter(Boolean);
+  if (byBlank.length > 1) return byBlank;
+
+  const single = byBlank[0] ?? trimmed;
+  const sentences = single.match(/[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g);
+  if (!sentences || sentences.length <= 2) return [single];
+
+  const groups: string[] = [];
+  for (let i = 0; i < sentences.length; i += 2) {
+    groups.push(
+      sentences
+        .slice(i, i + 2)
+        .map((s) => s.trim())
+        .join(" "),
+    );
+  }
+  return groups;
+}
+
+/** Turn SCREAMING_SNAKE / InvestigationOfficer into officer-friendly wording. */
+export function humanizeLabel(raw: string): string {
+  if (!raw) return raw;
+  return raw
+    .split(/(\s+)/)
+    .map((token) => {
+      if (/^\s+$/.test(token)) return token;
+      if (token.includes("_") || /^[A-Z]{2,}[A-Z0-9_]*$/.test(token)) {
+        return token
+          .split("_")
+          .filter(Boolean)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(" ");
+      }
+      if (/^[A-Z][a-z]+(?:[A-Z][a-z]+)+$/.test(token)) {
+        return token.replace(/([a-z])([A-Z])/g, "$1 $2");
+      }
+      return token;
+    })
+    .join("");
+}
+
+/** Soften stack jargon the model sometimes echoes into officer-facing prose. */
+export function humanizeOfficerProse(raw: string): string {
+  if (!raw) return raw;
+  return raw
+    .replace(/\bCONTEXT graph\b/gi, "linked case records")
+    .replace(/\bCONTEXT block\b/gi, "linked case records")
+    .replace(/\bCONTEXT\b/g, "linked case records")
+    .replace(/\b1-hop(?:\s+graph)?\s+neighborhood\b/gi, "immediate linked records")
+    .replace(/\bneo4j\b/gi, "graph records")
+    .replace(/\bMARKET_AREA\b/g, "market area")
+    .replace(/\bATM_VICINITY\b/g, "ATM vicinity")
+    .replace(/\b([A-Z]{2,}(?:_[A-Z0-9]+)+)\b/g, (_, code: string) => humanizeLabel(code));
+}
+
+type EntityGroup = { title: string; items: RelatedEntity[] };
+
+const ENTITY_GROUP_ORDER: { title: string; match: (type: string, id: string) => boolean }[] = [
+  {
+    title: "Accused",
+    match: (t, id) => /^accused$/i.test(t) || id.toUpperCase().startsWith("ACC-"),
+  },
+  {
+    title: "Victims",
+    match: (t, id) => /^victim/i.test(t) || id.toUpperCase().startsWith("VIC-"),
+  },
+  {
+    title: "Witnesses",
+    match: (t, id) => /^witness/i.test(t) || id.toUpperCase().startsWith("WIT-"),
+  },
+  {
+    title: "Locations",
+    match: (t, id) => /^location/i.test(t) || id.toUpperCase().startsWith("LOC-"),
+  },
+  {
+    title: "Investigation officers",
+    match: (t, id) =>
+      /officer|investigation/i.test(t) || id.toUpperCase().startsWith("OFF-"),
+  },
+  {
+    title: "FIRs",
+    match: (t, id) => /^fir$/i.test(t) || id.toUpperCase().startsWith("FIR-"),
+  },
+];
+
+export function groupRelatedEntities(entities: RelatedEntity[]): EntityGroup[] {
+  const remaining = [...entities];
+  const groups: EntityGroup[] = [];
+
+  for (const def of ENTITY_GROUP_ORDER) {
+    const items: RelatedEntity[] = [];
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      const e = remaining[i];
+      if (def.match(e.type ?? "", e.id)) {
+        items.unshift(e);
+        remaining.splice(i, 1);
+      }
+    }
+    if (items.length > 0) {
+      groups.push({ title: def.title, items });
+    }
+  }
+
+  if (remaining.length > 0) {
+    groups.push({ title: "Other", items: remaining });
+  }
+  return groups;
 }
