@@ -9,14 +9,36 @@ const ACCUSED_ID_PATTERN = /^ACC-[A-Za-z0-9_-]+$/i;
 const FIR_ID_PATTERN = /^FIR-[A-Za-z0-9_-]+$/i;
 
 /**
- * Single-shot citation Q&A (mvp2/11). Honesty label: v1 slice of the Graph-RAC pipeline.
+ * Citation Q&A (mvp2/11) + conversation store (Step A) + follow-up resolver (Step B).
+ * Honesty: history not yet packed into Claude prompt (Step D); chat UI is Step E.
  */
 export function QaPage() {
   const [mode, setMode] = useState<SeedMode>("accused");
   const [query, setQuery] = useState(DEMO_ACCUSED[5]?.accusedId ?? "ACC-00040");
+  const [followUp, setFollowUp] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function runAsk(
+    input: Parameters<typeof askQuery>[0],
+    options?: { clearFollowUp?: boolean },
+  ) {
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const data = await askQuery(input);
+      setConversationId(data.conversationId);
+      setResult(data);
+      if (options?.clearFollowUp) setFollowUp("");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -30,20 +52,37 @@ export function QaPage() {
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const data =
-        mode === "accused"
-          ? await askQuery({ accusedId: seed, firId: null })
-          : await askQuery({ accusedId: null, firId: seed });
-      setResult(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+    await runAsk(
+      mode === "accused"
+        ? { accusedId: seed, firId: null, conversationId }
+        : { accusedId: null, firId: seed, conversationId },
+    );
+  }
+
+  async function onFollowUp(e: FormEvent) {
+    e.preventDefault();
+    const text = followUp.trim();
+    if (!text || !conversationId) return;
+    await runAsk(
+      { accusedId: null, firId: null, conversationId, followUp: text },
+      { clearFollowUp: true },
+    );
+  }
+
+  function askAboutCitedId(id: string) {
+    if (!conversationId || loading) {
+      setFollowUp(`Tell me about ${id}`);
+      return;
     }
+    void runAsk(
+      {
+        accusedId: null,
+        firId: null,
+        conversationId,
+        followUp: `Tell me about ${id}`,
+      },
+      { clearFollowUp: true },
+    );
   }
 
   function pickAccused(id: string) {
@@ -72,6 +111,13 @@ export function QaPage() {
     }
   }
 
+  function startNewThread() {
+    setConversationId(null);
+    setResult(null);
+    setFollowUp("");
+    setError(null);
+  }
+
   return (
     <div className="mx-auto max-w-3xl px-7 py-8">
       <header className="mb-6">
@@ -80,12 +126,12 @@ export function QaPage() {
           Q&amp;A with citations
         </h1>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--ink-muted)]">
-          Enter one accused id or FIR. The system assembles investigation context and a 1-hop graph
-          neighborhood, then asks the model once.
+          Enter one accused id or FIR. After the first answer, ask a follow-up in plain language (or
+          tap a citation) — the resolver maps it to a cited ACC-/FIR- and re-runs retrieval.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          v1 slice of the Graph-RAC pipeline — not multi-turn, not voice, not vector search on this
-          path.
+          Graph-RAC Steps A–B — follow-ups resolve to citations; Claude still sees only the current
+          pack (not chat history). Not voice, not vector search on this path.
         </p>
       </header>
 
@@ -114,6 +160,16 @@ export function QaPage() {
           >
             {loading ? "Asking…" : "Ask"}
           </button>
+          {conversationId && (
+            <button
+              type="button"
+              onClick={startNewThread}
+              disabled={loading}
+              className="rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)] disabled:opacity-50"
+            >
+              New thread
+            </button>
+          )}
         </div>
       </form>
 
@@ -137,6 +193,34 @@ export function QaPage() {
         })}
       </div>
 
+      {conversationId && (
+        <form onSubmit={onFollowUp} noValidate className="mb-6 space-y-2">
+          <p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--ink-faint)]">
+            Follow-up
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={followUp}
+              onChange={(e) => setFollowUp(e.target.value)}
+              placeholder='e.g. “What about those co-accused?” or “Tell me about FIR-003276”'
+              className="min-w-[16rem] flex-1 rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+              aria-label="Follow-up question"
+              disabled={loading}
+            />
+            <button
+              type="submit"
+              disabled={loading || !followUp.trim()}
+              className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] disabled:opacity-50"
+            >
+              {loading ? "Asking…" : "Ask follow-up"}
+            </button>
+          </div>
+          <p className="text-[12px] text-[var(--ink-faint)]">
+            Tip: tap a citation chip below to ask about that id.
+          </p>
+        </form>
+      )}
+
       {error && (
         <p
           className="mb-4 rounded border border-[var(--risk-high)] bg-[var(--risk-high-soft)] px-3.5 py-3 text-[13.5px] text-[var(--risk-high)]"
@@ -152,7 +236,9 @@ export function QaPage() {
         </p>
       )}
 
-      {result && !loading && <QueryAnswerCard result={result} />}
+      {result && !loading && (
+        <QueryAnswerCard result={result} onCiteClick={askAboutCitedId} />
+      )}
 
       {!result && !loading && !error && (
         <p className="text-[13.5px] text-[var(--ink-faint)]">
@@ -211,7 +297,13 @@ export function validateSeedForMode(mode: SeedMode, seed: string): string | null
   return null;
 }
 
-function QueryAnswerCard({ result }: { result: QueryResult }) {
+function QueryAnswerCard({
+  result,
+  onCiteClick,
+}: {
+  result: QueryResult;
+  onCiteClick?: (id: string) => void;
+}) {
   const softFail =
     result.confidenceScore === 0 &&
     /unusable structured response|not configured|timed out|call failed|interrupted/i.test(
@@ -263,16 +355,11 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
           <SectionBand title="Evidence sources" tone="evidence" />
           <p className="mb-2 mt-2 text-[12px] text-[var(--ink-faint)]">
             Queried id and other cited ids not already listed under Related FIRs / people &amp;
-            places.
+            places. Tap a chip to follow up.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {result.evidenceSources.map((id) => (
-              <span
-                key={id}
-                className="rounded border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink)]"
-              >
-                {id}
-              </span>
+              <CiteChip key={id} id={id} onClick={onCiteClick} />
             ))}
           </div>
         </section>
@@ -283,12 +370,7 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
           <SectionBand title="Related FIRs" tone="firs" />
           <div className="mt-2 flex flex-wrap gap-1.5">
             {result.relatedFirs.map((id) => (
-              <span
-                key={id}
-                className="rounded border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink-muted)]"
-              >
-                {id}
-              </span>
+              <CiteChip key={id} id={id} onClick={onCiteClick} muted />
             ))}
           </div>
         </section>
@@ -306,9 +388,21 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
                 <ul className="space-y-1.5 text-[13px]">
                   {group.items.map((e) => (
                     <li key={e.id} className="text-[var(--ink-muted)]">
-                      <span className="font-[family-name:var(--font-mono)] text-[var(--ink)]">
-                        {e.id}
-                      </span>
+                      {onCiteClick &&
+                      (e.id.toUpperCase().startsWith("ACC-") ||
+                        e.id.toUpperCase().startsWith("FIR-")) ? (
+                        <button
+                          type="button"
+                          onClick={() => onCiteClick(e.id)}
+                          className="font-[family-name:var(--font-mono)] text-[var(--ink)] underline-offset-2 hover:underline hover:text-[var(--accent-ink)]"
+                        >
+                          {e.id}
+                        </button>
+                      ) : (
+                        <span className="font-[family-name:var(--font-mono)] text-[var(--ink)]">
+                          {e.id}
+                        </span>
+                      )}
                       {e.label ? ` · ${humanizeLabel(e.label)}` : ""}
                     </li>
                   ))}
@@ -319,6 +413,34 @@ function QueryAnswerCard({ result }: { result: QueryResult }) {
         </section>
       )}
     </div>
+  );
+}
+
+function CiteChip({
+  id,
+  onClick,
+  muted = false,
+}: {
+  id: string;
+  onClick?: (id: string) => void;
+  muted?: boolean;
+}) {
+  const base =
+    muted
+      ? "rounded border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink-muted)]"
+      : "rounded border border-[var(--line)] bg-[var(--surface-2)] px-2.5 py-1 font-[family-name:var(--font-mono)] text-[12px] text-[var(--ink)]";
+  if (!onClick) {
+    return <span className={base}>{id}</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(id)}
+      className={`${base} transition-colors hover:border-[var(--accent)] hover:text-[var(--accent-ink)]`}
+      title={`Ask about ${id}`}
+    >
+      {id}
+    </button>
   );
 }
 

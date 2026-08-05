@@ -3,18 +3,42 @@ import { apiGatewayBaseUrl, authHeaders } from "./apiGatewayClient";
 
 export type { QueryResult, RelatedEntity } from "./queryTypes";
 
-export type QueryInput =
-  | { accusedId: string; firId?: null }
-  | { accusedId?: null; firId: string };
+/** Seeded ask (ACC or FIR) — optional conversationId continues the thread. */
+export type SeededQueryInput =
+  | { accusedId: string; firId?: null; conversationId?: string | null; followUp?: null }
+  | { accusedId?: null; firId: string; conversationId?: string | null; followUp?: null };
+
+/** Follow-up NL ask — requires an existing conversation (mvp2/12 Step B). */
+export type FollowUpQueryInput = {
+  accusedId?: null;
+  firId?: null;
+  conversationId: string;
+  followUp: string;
+};
+
+export type QueryInput = SeededQueryInput | FollowUpQueryInput;
 
 export async function askQuery(
   input: QueryInput,
   signal?: AbortSignal,
 ): Promise<QueryResult> {
-  const accusedId = input.accusedId?.trim() || null;
-  const firId = input.firId?.trim() || null;
-  if ((accusedId == null) === (firId == null)) {
+  const followUp = input.followUp?.trim() || null;
+  const conversationId = input.conversationId?.trim() || null;
+  const accusedId =
+    "accusedId" in input && input.accusedId != null ? input.accusedId.trim() || null : null;
+  const firId = "firId" in input && input.firId != null ? input.firId.trim() || null : null;
+
+  const hasAccused = accusedId != null;
+  const hasFir = firId != null;
+  if (hasAccused && hasFir) {
     throw new Error("Provide exactly one of accusedId or firId");
+  }
+  const hasSeed = hasAccused || hasFir;
+  if (!hasSeed && !followUp) {
+    throw new Error("Provide accusedId or firId, or a follow-up with conversationId");
+  }
+  if (!hasSeed && followUp && !conversationId) {
+    throw new Error("Follow-up requires an existing conversation");
   }
 
   const base = apiGatewayBaseUrl();
@@ -24,7 +48,12 @@ export async function askQuery(
     res = await fetch(url, {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({ accusedId, firId }),
+      body: JSON.stringify({
+        accusedId: hasSeed ? accusedId : null,
+        firId: hasSeed ? firId : null,
+        conversationId,
+        followUp: hasSeed ? null : followUp,
+      }),
       signal,
     });
   } catch (err: unknown) {
