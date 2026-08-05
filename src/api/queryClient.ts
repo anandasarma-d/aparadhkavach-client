@@ -1,19 +1,41 @@
-import type { QueryResult } from "./queryTypes";
+import type { QueryResult, RelatedEntity } from "./queryTypes";
 import { apiGatewayBaseUrl, authHeaders } from "./apiGatewayClient";
 
 export type { QueryResult, RelatedEntity } from "./queryTypes";
 
+/** Citation snapshot so follow-ups survive AppSail conversation-store misses. */
+export type FollowUpContext = {
+  accusedId?: string | null;
+  firId?: string | null;
+  evidenceSources: string[];
+  relatedFirs: string[];
+  relatedEntities: RelatedEntity[];
+};
+
 /** Seeded ask (ACC or FIR) — optional conversationId continues the thread. */
 export type SeededQueryInput =
-  | { accusedId: string; firId?: null; conversationId?: string | null; followUp?: null }
-  | { accusedId?: null; firId: string; conversationId?: string | null; followUp?: null };
+  | {
+      accusedId: string;
+      firId?: null;
+      conversationId?: string | null;
+      followUp?: null;
+      followUpContext?: null;
+    }
+  | {
+      accusedId?: null;
+      firId: string;
+      conversationId?: string | null;
+      followUp?: null;
+      followUpContext?: null;
+    };
 
-/** Follow-up NL ask — requires an existing conversation (mvp2/12 Step B). */
+/** Follow-up NL ask — conversationId + last-answer citation snapshot (mvp2/12 Step B). */
 export type FollowUpQueryInput = {
   accusedId?: null;
   firId?: null;
   conversationId: string;
   followUp: string;
+  followUpContext?: FollowUpContext | null;
 };
 
 export type QueryInput = SeededQueryInput | FollowUpQueryInput;
@@ -27,6 +49,8 @@ export async function askQuery(
   const accusedId =
     "accusedId" in input && input.accusedId != null ? input.accusedId.trim() || null : null;
   const firId = "firId" in input && input.firId != null ? input.firId.trim() || null : null;
+  const followUpContext =
+    "followUpContext" in input && input.followUpContext != null ? input.followUpContext : null;
 
   const hasAccused = accusedId != null;
   const hasFir = firId != null;
@@ -53,6 +77,7 @@ export async function askQuery(
         firId: hasSeed ? firId : null,
         conversationId,
         followUp: hasSeed ? null : followUp,
+        followUpContext: hasSeed || !followUpContext ? null : followUpContext,
       }),
       signal,
     });
@@ -89,6 +114,11 @@ export async function askQuery(
     if (/read timed out|i\/o error|execution_time_exceeded|408/i.test(detail)) {
       throw new Error(
         "Q&A timed out waiting for Orchestration/Claude. Run ./appsail-demo-keep-warm.sh --once (includes Ask warm), then retry.",
+      );
+    }
+    if (/No conversation for conversationId/i.test(detail)) {
+      throw new Error(
+        "Q&A session was lost on the server (AppSail recycle). Click Ask on the accused/FIR again, then retry the follow-up.",
       );
     }
     throw new Error(`Q&A request failed (${detail}).`);

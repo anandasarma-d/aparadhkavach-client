@@ -63,8 +63,15 @@ export function QaPage() {
     e.preventDefault();
     const text = followUp.trim();
     if (!text || !conversationId) return;
+    const ctx = result ? toFollowUpContext(result, mode, query) : null;
     await runAsk(
-      { accusedId: null, firId: null, conversationId, followUp: text },
+      {
+        accusedId: null,
+        firId: null,
+        conversationId,
+        followUp: text,
+        followUpContext: ctx,
+      },
       { clearFollowUp: true },
     );
   }
@@ -74,12 +81,14 @@ export function QaPage() {
       setFollowUp(`Tell me about ${id}`);
       return;
     }
+    const ctx = result ? toFollowUpContext(result, mode, query) : null;
     void runAsk(
       {
         accusedId: null,
         firId: null,
         conversationId,
         followUp: `Tell me about ${id}`,
+        followUpContext: ctx,
       },
       { clearFollowUp: true },
     );
@@ -271,6 +280,50 @@ function ModeChip({
       {children}
     </button>
   );
+}
+
+/** Build citation snapshot from the last answer so follow-ups survive store misses. */
+function toFollowUpContext(
+  result: QueryResult,
+  mode: SeedMode,
+  seedInput: string,
+): {
+  accusedId: string | null;
+  firId: string | null;
+  evidenceSources: string[];
+  relatedFirs: string[];
+  relatedEntities: RelatedEntity[];
+} {
+  const seed = seedInput.trim();
+  const fromMode =
+    mode === "accused"
+      ? { accusedId: ACCUSED_ID_PATTERN.test(seed) ? seed : null, firId: null as string | null }
+      : { accusedId: null as string | null, firId: FIR_ID_PATTERN.test(seed) ? seed : null };
+
+  // Prefer an ACC-/FIR- evidence id when the form seed no longer matches the last ask.
+  let accusedId = fromMode.accusedId;
+  let firId = fromMode.firId;
+  if (!accusedId && !firId) {
+    for (const id of result.evidenceSources ?? []) {
+      const upper = id.toUpperCase();
+      if (upper.startsWith("ACC-")) {
+        accusedId = id;
+        break;
+      }
+      if (upper.startsWith("FIR-")) {
+        firId = id;
+        break;
+      }
+    }
+  }
+
+  return {
+    accusedId,
+    firId,
+    evidenceSources: result.evidenceSources ?? [],
+    relatedFirs: result.relatedFirs ?? [],
+    relatedEntities: result.relatedEntities ?? [],
+  };
 }
 
 /** Returns an officer-facing error, or null when the id matches the selected tab. */
