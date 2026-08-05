@@ -134,21 +134,41 @@ export async function readCatalystAuthState(): Promise<{
   try {
     const result = await auth.isUserAuthenticated();
     if (typeof result === "boolean") {
-      return { authenticated: result, user: null };
+      if (result) {
+        const user = await fetchCurrentUserRaw(null).catch(() => null);
+        return { authenticated: true, user };
+      }
+      return { authenticated: false, user: null };
     }
     if (result && typeof result === "object" && "content" in result) {
       const content = (result as { content?: unknown }).content;
       if (typeof content === "boolean") {
-        return { authenticated: content, user: null };
+        if (!content) return { authenticated: false, user: null };
+        const user = await fetchCurrentUserRaw(null).catch(() => null);
+        return { authenticated: true, user };
       }
       const user = unwrapUser(result);
-      return { authenticated: Boolean(user) || content != null, user };
+      if (user) return { authenticated: true, user };
+      // content present but not a user shape — still treat as signed-in and resolve profile.
+      if (content != null) {
+        const profile = await fetchCurrentUserRaw(null).catch(() => null);
+        return { authenticated: true, user: profile };
+      }
     }
     const user = unwrapUser(result);
-    return { authenticated: Boolean(user), user };
+    if (user) return { authenticated: true, user };
   } catch {
-    return { authenticated: false, user: null };
+    // fall through to profile probe
   }
+
+  // Flaky isUserAuthenticated after Hosted return — ask userManagement directly (D-101).
+  try {
+    const user = await fetchCurrentUserRaw(null);
+    if (user) return { authenticated: true, user };
+  } catch {
+    // ignore
+  }
+  return { authenticated: false, user: null };
 }
 
 async function fetchCurrentUserRaw(
@@ -320,16 +340,16 @@ export function showLoginUrl(): string {
  * Catalyst Hosted Auth login (platform page under /__catalyst — not our SPA).
  * Primary sign-in path after D-075/D-088 (Embedded iframe abandoned for demos).
  *
- * serviceurl includes {@code authReturn=1} so LoginPage can tell a Hosted success
- * bounce from a post-logout SPA land that still has logoutPending (D-101).
+ * serviceurl must stay a bare app origin path — Hosted has been unreliable with
+ * query strings on the return URL (D-101).
  */
 export function hostedAuthLoginUrl(): string {
-  const serviceurl = `${appOrigin()}/?authReturn=1`;
+  const serviceurl = `${appOrigin()}/`;
   const params = new URLSearchParams({ serviceurl });
   return `${appOrigin()}/__catalyst/auth/login?${params.toString()}`;
 }
 
-/** True when Catalyst Hosted finished and redirected back to the SPA (D-101). */
+/** @deprecated kept for older links; Hosted may strip this anyway. */
 export function consumeAuthReturnQuery(): boolean {
   const params = new URLSearchParams(window.location.search);
   if (params.get("authReturn") !== "1") return false;

@@ -5,7 +5,7 @@ import {
   catalystSignOut,
   clearLogoutCookieRetry,
   clearSwitchPending,
-  hostedAuthLoginUrl,
+  loggedOutUrl,
   markSignOutAttempted,
 } from "./auth/catalyst";
 import {
@@ -64,7 +64,8 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
-    // Clear JWT → IAM logout → Hosted email/password (no SPA gate). Enter any persona email next.
+    // Clear JWT → IAM logout → SPA /?loggedOut=1 → LoginPage → Hosted if needed.
+    // Do not pass hostedAuthLoginUrl as logout serviceurl (nested query broke returns, D-101).
     markLogoutPending();
     markSignOutAttempted();
     setLoggingOut(true);
@@ -75,7 +76,7 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    void catalystSignOut(hostedAuthLoginUrl());
+    void catalystSignOut(loggedOutUrl());
   }
 
   function showNetworkFor(accusedId: string) {

@@ -57,13 +57,15 @@ function formatAuthError(err: unknown): string {
   return "Could not finish AparadhKavach sign-in (session mint or Catalyst profile failed).";
 }
 
+const HOSTED_ATTEMPT_KEY = "aparadhkavach.auth.hostedAttempt";
+
 /**
  * Hosted Auth is the only sign-in UI (Catalyst email/password).
  * No SPA “Sign in with email / Switch account” gate — that overcomplicated logout (D-099).
  * Flow: unauthenticated → `/__catalyst/auth/login`; after password → `/` → mint JWT.
  *
- * D-101: never skip mint because of logoutPending — Hosted often strips serviceurl query
- * params (authReturn), which turned post-password returns into an infinite Hosted loop.
+ * D-101: never skip mint because of logoutPending; never auto-loop Hosted forever if the
+ * SDK still cannot see the Catalyst session after a Hosted round-trip.
  */
 export function LoginPage({ onSignedIn }: LoginPageProps) {
   const [mode, setMode] = useState<Mode>("loading");
@@ -76,6 +78,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     let cancelled = false;
 
     function goHosted() {
+      try {
+        sessionStorage.setItem(HOSTED_ATTEMPT_KEY, "1");
+      } catch {
+        // ignore
+      }
       clearLogoutPending();
       clearSignOutAttempted();
       clearLogoutCookieRetry();
@@ -102,7 +109,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           catalystUserId: userIdHint,
           email: emailHint,
         });
-        // Always apply — React Strict Mode can cancel the effect after mint completes.
+        try {
+          sessionStorage.removeItem(HOSTED_ATTEMPT_KEY);
+        } catch {
+          // ignore
+        }
         onSignedIn(session);
         return;
       }
@@ -119,6 +130,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         catalystUserId: identity.sub,
         email: identity.email,
       });
+      try {
+        sessionStorage.removeItem(HOSTED_ATTEMPT_KEY);
+      } catch {
+        // ignore
+      }
       onSignedIn(session);
     }
 
@@ -126,11 +142,10 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       authenticated: boolean;
       user: CatalystUser | null;
     }> {
-      // Hosted cookie / SDK can lag a beat after password redirect.
       let last = await readCatalystAuthState();
       if (last.authenticated) return last;
-      for (let i = 0; i < 6; i++) {
-        await new Promise((r) => setTimeout(r, 350));
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 400));
         if (cancelled) return last;
         last = await readCatalystAuthState();
         if (last.authenticated) return last;
@@ -161,14 +176,19 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      // Drop logout / switch crumbs. Do NOT goHosted solely because of them (D-101):
-      // Hosted may return to bare `/` without authReturn while logoutPending is still set.
       consumeAuthReturnQuery();
       consumeLoggedOutQuery();
       clearLogoutPending();
       clearSignOutAttempted();
       clearLogoutCookieRetry();
       clearSwitchPending();
+
+      let alreadyTriedHosted = false;
+      try {
+        alreadyTriedHosted = sessionStorage.getItem(HOSTED_ATTEMPT_KEY) === "1";
+      } catch {
+        alreadyTriedHosted = false;
+      }
 
       const ok = await ensureCatalystSdk();
       if (cancelled) return;
@@ -203,7 +223,16 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         if (!cancelled) setBusy(false);
       }
 
-      // Not signed in to Catalyst → Hosted email/password (no SPA gate).
+      // Break Hosted↔SPA loops (D-101): after one Hosted round-trip without a readable
+      // Catalyst session, stop auto-redirect and show recovery UI.
+      if (alreadyTriedHosted) {
+        setError(
+          "Hosted Auth returned here, but the Catalyst session is not visible to the app yet. Use “Sign out & retry”, or sessionStorage.clear() and reload.",
+        );
+        setMode("auth-stuck");
+        return;
+      }
+
       if (!cancelled) goHosted();
     }
 
@@ -217,6 +246,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
   function signOutToHosted() {
     setError(null);
     setMode("redirecting");
+    try {
+      sessionStorage.removeItem(HOSTED_ATTEMPT_KEY);
+    } catch {
+      // ignore
+    }
     void catalystSignOut(hostedAuthLoginUrl());
   }
 
