@@ -149,7 +149,7 @@ export function NetworkPage({ initialEntityId = null, onShowSimilar }: NetworkPa
 
       {loading && (
         <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
-          Loading network for {entityId}…
+          Loading network for {entityId} (auto-retries if cold)…
         </p>
       )}
 

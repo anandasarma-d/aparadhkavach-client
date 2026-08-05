@@ -210,7 +210,7 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
 
       {loading && (
         <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
-          Finding cases similar to {firId}…
+          Finding cases similar to {firId} (auto-retries if cold)…
         </p>
       )}
 

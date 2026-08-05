@@ -1,6 +1,11 @@
 import { useState, type ReactNode } from "react";
 import { revokeSession } from "./api/authClient";
-import { catalystSignOut, clearSignOutAttempted, loggedOutUrl, markSignOutAttempted } from "./auth/catalyst";
+import {
+  clearSignOutAttempted,
+  hostedAuthLoginUrl,
+  markSignOutAttempted,
+  portalLogoutUrl,
+} from "./auth/catalyst";
 import {
   clearLogoutPending,
   clearSession,
@@ -50,7 +55,8 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
-    // Prevent LoginPage from auto-minting off a lingering Catalyst cookie.
+    // Clear JWT locally, then portal logout (clears Catalyst cookies) → Hosted login (D-088).
+    // Do not use SDK signOut → executor SPA swallow (that path kept cookies alive).
     markLogoutPending();
     markSignOutAttempted();
     setLoggingOut(true);
@@ -61,8 +67,7 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    // signOut → executor /accounts/logout → bounce to zohoportal (clears cookies) → serviceurl.
-    void catalystSignOut(loggedOutUrl());
+    window.location.assign(portalLogoutUrl(hostedAuthLoginUrl()));
   }
 
   function showNetworkFor(accusedId: string) {

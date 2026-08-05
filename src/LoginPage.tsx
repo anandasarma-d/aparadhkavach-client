@@ -5,19 +5,16 @@ import { clearLogoutPending, isLogoutPending, markLogoutPending } from "./auth/s
 import {
   breakOutOfAuthFrameIfNested,
   catalystAvailable,
-  catalystSignOut,
   clearSignOutAttempted,
-  consumeShowLoginQuery,
   ensureCatalystSdk,
   hostedAuthLoginUrl,
   isCatalystAuthenticated,
-  loggedOutUrl,
   markSignOutAttempted,
+  portalLogoutUrl,
   redirectCatalystLogoutPath,
   redirectExecutorShellToPublicHost,
   redirectInviteConfirmToPortal,
   readCatalystIdentity,
-  startEmbeddedSignIn,
   wasSignOutAttempted,
 } from "./auth/catalyst";
 import { RoleMenu } from "./rbac/RoleMenu";
@@ -29,13 +26,17 @@ type LoginPageProps = {
 
 type Mode =
   | "loading"
-  | "embedded"
+  | "minting"
+  | "sign-in"
   | "fallback"
   | "confirm-redirect"
   | "auth-stuck"
-  | "redirecting"
-  | "post-logout"
-  | "session-stuck";
+  | "redirecting";
+
+/** Demo role picker only when explicitly enabled (D-080). Default off on Lane B Slate. */
+function allowDevMintUi(): boolean {
+  return import.meta.env.VITE_ALLOW_DEV_MINT === "true";
+}
 
 function consumeLoggedOutQuery(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -54,19 +55,36 @@ function formatAuthError(err: unknown): string {
 }
 
 /**
- * Prefer Catalyst Embedded Auth iframe (mvp2/10). Falls back to role picker when
- * SDK/init.js is unavailable (local Vite) or Embedded fails to mount.
- * Embedded path mints via catalystUserId exchange (server looks up role). Role picker
- * still needs AUTH_ALLOW_DEV_MINT on Auth Service.
+ * Hosted Auth is the durable primary path (mvp2/10 close-out).
+ * Embedded iframe caused D-075 whitespace and D-088 cookie/switch loops — do not remount it.
+ * After password, Catalyst returns to service_url=/ → we mint JWT from catalystUserId.
  */
 export function LoginPage({ onSignedIn }: LoginPageProps) {
   const [mode, setMode] = useState<Mode>("loading");
   const [role, setRole] = useState<AppRole>(DEFAULT_ROLE);
   const [busy, setBusy] = useState(false);
+  const [mintStep, setMintStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
+    async function mintFromCatalyst() {
+      setMode("minting");
+      setMintStep("Reading Catalyst profile…");
+      const identity = await readCatalystIdentity();
+      if (!identity) {
+        throw new Error(
+          "Signed in to Catalyst but could not read user profile (getCurrentProjectUser returned empty).",
+        );
+      }
+      setMintStep("Minting AparadhKavach session…");
+      const session = await createCatalystSession({
+        catalystUserId: identity.sub,
+        email: identity.email,
+      });
+      if (!cancelled) onSignedIn(session);
+    }
 
     async function boot() {
       if (breakOutOfAuthFrameIfNested()) {
@@ -89,7 +107,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      const wantEmbedded = consumeShowLoginQuery();
       const fromLogout = consumeLoggedOutQuery() || isLogoutPending();
       if (fromLogout) {
         markLogoutPending();
@@ -99,65 +116,45 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       if (cancelled) return;
 
       if (!ok || !catalystAvailable()) {
-        if (fromLogout || wantEmbedded) {
-          clearLogoutPending();
-          clearSignOutAttempted();
-        }
-        setMode("fallback");
-        return;
-      }
-
-      /*
-       * showLogin=1: after Switch account / Sign in forced a Catalyst logout.
-       * Never auto-mint — only Embedded (or stuck UI if cookie survived).
-       */
-      if (wantEmbedded) {
         clearLogoutPending();
         clearSignOutAttempted();
-        try {
-          if (await isCatalystAuthenticated()) {
-            if (!cancelled) setMode("session-stuck");
-            return;
-          }
-        } catch {
-          // treat as signed out
+        if (allowDevMintUi()) {
+          setMode("fallback");
+        } else {
+          setError(
+            "Catalyst Auth is unavailable on this host. Use the Slate workbench URL, or set VITE_ALLOW_DEV_MINT=true for local demo mint.",
+          );
+          setMode("sign-in");
         }
-        if (!cancelled) setMode("embedded");
         return;
       }
 
       /*
-       * After app Logout: never auto-mint / never mount Embedded while cookie may linger.
+       * After Logout we already bounced through accounts.zohoportal.in.
+       * If a cookie somehow remains, send user to Hosted login (not Embedded).
        */
       if (fromLogout || isLogoutPending()) {
         try {
           const stillIn = await isCatalystAuthenticated();
           if (stillIn && !wasSignOutAttempted()) {
             markSignOutAttempted();
-            await catalystSignOut(loggedOutUrl());
+            setMode("redirecting");
+            window.location.replace(portalLogoutUrl(hostedAuthLoginUrl()));
             return;
           }
         } catch {
-          // fall through
+          // fall through to sign-in
         }
-        if (!cancelled) setMode("post-logout");
+        clearLogoutPending();
+        clearSignOutAttempted();
+        if (!cancelled) setMode("sign-in");
         return;
       }
 
       try {
         if (await isCatalystAuthenticated()) {
           setBusy(true);
-          const identity = await readCatalystIdentity();
-          if (!identity) {
-            throw new Error(
-              "Signed in to Catalyst but could not read user profile (getCurrentProjectUser returned empty).",
-            );
-          }
-          const session = await createCatalystSession({
-            catalystUserId: identity.sub,
-            email: identity.email,
-          });
-          if (!cancelled) onSignedIn(session);
+          await mintFromCatalyst();
           return;
         }
       } catch (err: unknown) {
@@ -165,12 +162,13 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         setError(formatAuthError(err));
         setMode("auth-stuck");
         setBusy(false);
+        setMintStep(null);
         return;
       } finally {
         if (!cancelled) setBusy(false);
       }
 
-      if (!cancelled) setMode("embedded");
+      if (!cancelled) setMode("sign-in");
     }
 
     void boot();
@@ -180,75 +178,29 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (mode !== "embedded") return;
-    try {
-      startEmbeddedSignIn("catalyst-login");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-      setMode("fallback");
-    }
-  }, [mode]);
-
-  /** Open email/password — if Catalyst cookie remains, go to Hosted login (not showLogin loop). */
-  async function beginSignInAfterLogout() {
+  function goHostedSignIn() {
     setError(null);
-    setBusy(true);
-    try {
-      clearLogoutPending();
-      clearSignOutAttempted();
-
-      if (await isCatalystAuthenticated()) {
-        markSignOutAttempted();
-        // Hosted /__catalyst/auth/login is a real Catalyst page (not SPA) — user can enter email.
-        await catalystSignOut(hostedAuthLoginUrl());
-        return;
-      }
-      setMode("embedded");
-    } catch (err: unknown) {
-      setError(formatAuthError(err));
-      setMode("embedded");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** Force Catalyst sign-out, then Hosted login form (breaks session-stuck Retry loop). */
-  function switchAccountAfterLogout() {
-    markSignOutAttempted();
+    setMode("redirecting");
     clearLogoutPending();
-    void catalystSignOut(hostedAuthLoginUrl());
+    clearSignOutAttempted();
+    window.location.assign(hostedAuthLoginUrl());
   }
 
-  async function continueAsCatalystUser() {
+  function switchAccount() {
     setError(null);
-    setBusy(true);
-    try {
-      clearLogoutPending();
-      clearSignOutAttempted();
-      const identity = await readCatalystIdentity();
-      if (!identity) {
-        throw new Error("Could not read Catalyst profile.");
-      }
-      const session = await createCatalystSession({
-        catalystUserId: identity.sub,
-        email: identity.email,
-      });
-      onSignedIn(session);
-    } catch (err: unknown) {
-      setError(formatAuthError(err));
-    } finally {
-      setBusy(false);
-    }
+    setMode("redirecting");
+    markSignOutAttempted();
+    markLogoutPending();
+    // Portal logout clears Catalyst cookies; return to Hosted login for a fresh email form (D-088).
+    window.location.assign(portalLogoutUrl(hostedAuthLoginUrl()));
   }
 
   const compact =
-    mode === "embedded" ||
+    mode === "sign-in" ||
+    mode === "minting" ||
     mode === "confirm-redirect" ||
     mode === "auth-stuck" ||
-    mode === "redirecting" ||
-    mode === "post-logout" ||
-    mode === "session-stuck";
+    mode === "redirecting";
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-x-hidden bg-[var(--paper)] px-4 py-6 text-[var(--ink)] sm:px-6">
@@ -256,22 +208,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_20%,color-mix(in_srgb,var(--accent-soft)_70%,transparent),transparent_55%)]"
       />
-
-      <style>{`
-        #catalyst-login {
-          overflow: hidden;
-          max-height: 220px;
-        }
-        #catalyst-login iframe {
-          display: block;
-          width: 100% !important;
-          max-width: 100%;
-          height: 220px !important;
-          min-height: 0 !important;
-          border: 0 !important;
-          margin-top: -12px;
-        }
-      `}</style>
 
       <main className="relative w-full max-w-[24rem]">
         <div className={`flex flex-col items-center text-center ${compact ? "mb-3" : "mb-8"}`}>
@@ -302,98 +238,19 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             </p>
           )}
 
+          {mode === "minting" && (
+            <div className="space-y-2 text-center">
+              <p className="text-[14px] font-medium text-[var(--ink)]">Finishing sign-in…</p>
+              <p className="text-[13px] text-[var(--ink-muted)]">
+                {mintStep ?? "Preparing session…"}
+              </p>
+            </div>
+          )}
+
           {mode === "redirecting" && (
             <p className="text-center text-[14px] text-[var(--ink-muted)]">
-              Finishing sign-out…
+              Opening Catalyst sign-in…
             </p>
-          )}
-
-          {mode === "post-logout" && (
-            <div className="space-y-3 text-center">
-              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">Signed out</h2>
-              <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-                AparadhKavach session cleared. Sign in with email/password, switch Catalyst
-                account, or use the demo role picker.
-              </p>
-              {error && (
-                <p className="text-left text-[13px] text-red-700" role="alert">
-                  {error}
-                </p>
-              )}
-              <button
-                type="button"
-                disabled={busy}
-                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)] disabled:opacity-60"
-                onClick={() => void beginSignInAfterLogout()}
-              >
-                {busy ? "Working…" : "Sign in with email"}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)] disabled:opacity-60"
-                onClick={() => switchAccountAfterLogout()}
-              >
-                Switch account (Hosted sign-in)
-              </button>
-              <button
-                type="button"
-                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
-                onClick={() => {
-                  clearLogoutPending();
-                  clearSignOutAttempted();
-                  setError(null);
-                  setMode("fallback");
-                }}
-              >
-                Use demo role picker
-              </button>
-            </div>
-          )}
-
-          {mode === "session-stuck" && (
-            <div className="space-y-3 text-center">
-              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">
-                Catalyst session still active
-              </h2>
-              <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-                The browser still has a Catalyst login cookie, so Embedded sign-in would skip the
-                email form. Continue as that user, open Catalyst Hosted sign-in (different account),
-                or use the demo picker.
-              </p>
-              {error && (
-                <p className="text-left text-[13px] text-red-700" role="alert">
-                  {error}
-                </p>
-              )}
-              <button
-                type="button"
-                disabled={busy}
-                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)] disabled:opacity-60"
-                onClick={() => void continueAsCatalystUser()}
-              >
-                {busy ? "Working…" : "Continue as current Catalyst user"}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)] disabled:opacity-60"
-                onClick={() => switchAccountAfterLogout()}
-              >
-                Sign in with different account (Hosted)
-              </button>
-              <button
-                type="button"
-                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
-                onClick={() => {
-                  clearLogoutPending();
-                  clearSignOutAttempted();
-                  setMode("fallback");
-                }}
-              >
-                Use demo role picker
-              </button>
-            </div>
           )}
 
           {mode === "confirm-redirect" && (
@@ -429,51 +286,72 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                   </span>{" "}
                   / ANALYST / SUPERVISOR / POLICYMAKER (not App Administrator / App User).
                 </li>
-                <li>Sign out of Catalyst below, then reload and sign in again with email + password.</li>
-                <li>Or use the demo role picker for Lane B demos.</li>
+                <li>Sign out below, then sign in again with email + password.</li>
               </ol>
               <button
                 type="button"
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
-                onClick={() => {
-                  markLogoutPending();
-                  clearSignOutAttempted();
-                  markSignOutAttempted();
-                  void catalystSignOut(loggedOutUrl());
-                }}
+                onClick={() => switchAccount()}
               >
-                Sign out of Catalyst & reload
+                Sign out &amp; switch account
               </button>
-              <button
-                type="button"
-                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)]"
-                onClick={() => {
-                  setError(null);
-                  setMode("fallback");
-                }}
-              >
-                Use demo role picker
-              </button>
+              {allowDevMintUi() && (
+                <button
+                  type="button"
+                  className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)]"
+                  onClick={() => {
+                    setError(null);
+                    setMode("fallback");
+                  }}
+                >
+                  Use demo role picker
+                </button>
+              )}
             </div>
           )}
 
-          {mode === "embedded" && (
-            <>
-              <p className="mb-1.5 text-center text-[13px] text-[var(--ink-muted)]">
-                Sign in with your AparadhKavach account
+          {mode === "sign-in" && (
+            <div className="space-y-3 text-center">
+              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">Sign in</h2>
+              <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
+                Use your AparadhKavach Catalyst account (email + password). Hosted sign-in avoids
+                the Embedded iframe so account switch and logout stay reliable.
               </p>
-              <div id="catalyst-login" className="w-full" />
+              {error && (
+                <p className="text-left text-[13px] text-red-700" role="alert">
+                  {error}
+                </p>
+              )}
               <button
                 type="button"
-                className="mt-2 w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
-                onClick={() => setMode("fallback")}
+                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)]"
+                onClick={() => goHostedSignIn()}
               >
-                Use demo role picker instead
+                Sign in with email
               </button>
-            </>
+              <button
+                type="button"
+                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
+                onClick={() => switchAccount()}
+              >
+                Switch account
+              </button>
+              {allowDevMintUi() && (
+                <button
+                  type="button"
+                  className="w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setError(null);
+                    setMode("fallback");
+                  }}
+                >
+                  Use demo role picker instead
+                </button>
+              )}
+            </div>
           )}
 
-          {mode === "fallback" && (
+          {mode === "fallback" && allowDevMintUi() && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -510,18 +388,21 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
               >
                 {busy ? "Signing in…" : "Continue"}
               </button>
+              <button
+                type="button"
+                className="mt-2 w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
+                onClick={() => setMode("sign-in")}
+              >
+                Back to Hosted sign-in
+              </button>
             </form>
           )}
 
-          {error &&
-            mode !== "auth-stuck" &&
-            mode !== "redirecting" &&
-            mode !== "post-logout" &&
-            mode !== "session-stuck" && (
-              <p className="mt-3 text-[13px] text-red-700" role="alert">
-                {error}
-              </p>
-            )}
+          {error && mode !== "auth-stuck" && mode !== "sign-in" && mode !== "redirecting" && (
+            <p className="mt-3 text-[13px] text-red-700" role="alert">
+              {error}
+            </p>
+          )}
         </div>
       </main>
     </div>

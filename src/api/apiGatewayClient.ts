@@ -2,6 +2,7 @@ import type { AccusedRiskProfile } from "./accusedRiskProfile";
 
 
 import { accessToken } from "../auth/session";
+import { fetchWithRetry } from "./fetchWithRetry";
 
 /** JSON Accept + Bearer when a session exists (mvp2/10 required Gateway JWT). */
 export function authHeaders(extra?: HeadersInit): Headers {
@@ -45,10 +46,11 @@ export async function fetchAccusedRiskProfile(
 
   const base = apiGatewayBaseUrl();
   const url = `${base}/v1/accusedPersons/${encodeURIComponent(id)}:riskProfile`;
-  const res = await fetch(url, {
-    headers: authHeaders(),
-    signal,
-  });
+  const res = await fetchWithRetry(
+    url,
+    { headers: authHeaders() },
+    { signal, attempts: 3 },
+  );
 
   if (res.status === 404) {
     throw new Error(`No risk profile for accusedId=${id}`);

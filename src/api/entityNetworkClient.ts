@@ -1,5 +1,6 @@
 import type { EntityNetwork } from "./entityNetworkTypes";
 import { apiGatewayBaseUrl, authHeaders } from "./apiGatewayClient";
+import { fetchWithRetry } from "./fetchWithRetry";
 
 export type { EntityNetwork, NetworkEdge, NetworkNode } from "./entityNetworkTypes";
 
@@ -27,10 +28,11 @@ export async function fetchEntityNetwork(
 
   const base = apiGatewayBaseUrl();
   const url = `${base}/v1/entities/${encodeURIComponent(id)}/network?depth=${clamped}`;
-  const res = await fetch(url, {
-    headers: authHeaders(),
-    signal,
-  });
+  const res = await fetchWithRetry(
+    url,
+    { headers: authHeaders() },
+    { signal, attempts: 3 },
+  );
 
   if (res.status === 404) {
     throw new EntityNotFoundError(id);

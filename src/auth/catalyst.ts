@@ -270,10 +270,12 @@ export function showLoginUrl(): string {
 
 /**
  * Catalyst Hosted Auth login (platform page under /__catalyst — not our SPA).
- * Use after signOut when Embedded cannot open because a cookie still forces SSO.
+ * Primary sign-in path after D-075/D-088 (Embedded iframe abandoned for demos).
  */
 export function hostedAuthLoginUrl(): string {
-  return `${appOrigin()}/__catalyst/auth/login`;
+  const serviceurl = `${appOrigin()}/`;
+  const params = new URLSearchParams({ serviceurl });
+  return `${appOrigin()}/__catalyst/auth/login?${params.toString()}`;
 }
 
 export function consumeShowLoginQuery(): boolean {
