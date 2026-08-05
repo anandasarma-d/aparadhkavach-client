@@ -15,7 +15,6 @@ import {
   getLogoutCookieRetry,
   hostedAuthLoginUrl,
   isSwitchPending,
-  loggedOutUrl,
   markSignOutAttempted,
   markSwitchPending,
   readCatalystAuthState,
@@ -170,38 +169,39 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       }
 
       /*
-       * After Logout / Switch: do not treat a surviving Catalyst cookie as “done”.
-       * Prior D-088 path skipped a second clear when wasSignOutAttempted → SPA Sign-in gate loop (D-099).
-       * Retry SDK/baas logout a few times, then open Hosted once the cookie is gone.
+       * After Logout: never auto-mint (D-084). Do not auto-retry logout loops (that regressed
+       * D-088’s clean SPA gate into a red “cookie still active” banner).
+       *
+       * After Switch: if cookie cleared → Hosted email form; if still authed → one Nimbus clear
+       * retry then guidance (D-099).
        */
       if (fromLogout || isLogoutPending() || wantSwitch) {
         try {
           const state = await readCatalystAuthState();
-          if (state.authenticated) {
-            const retries = getLogoutCookieRetry();
-            if (retries < MAX_LOGOUT_COOKIE_RETRIES) {
-              bumpLogoutCookieRetry();
-              markSignOutAttempted();
+          if (wantSwitch || isSwitchPending()) {
+            if (state.authenticated) {
+              const retries = getLogoutCookieRetry();
+              if (retries < MAX_LOGOUT_COOKIE_RETRIES) {
+                bumpLogoutCookieRetry();
+                markSignOutAttempted();
+                setMode("redirecting");
+                await catalystSignOut(hostedAuthLoginUrl());
+                return;
+              }
+              setError(
+                "Catalyst still has an active session cookie. Use Switch account again, or clear site data for this host, then Sign in with email.",
+              );
+            } else {
+              clearLogoutPending();
+              clearSignOutAttempted();
+              clearLogoutCookieRetry();
+              clearSwitchPending();
               setMode("redirecting");
-              // Switch → Hosted; plain Logout → SPA gate (loggedOut) after clear.
-              const dest =
-                wantSwitch || isSwitchPending() ? hostedAuthLoginUrl() : loggedOutUrl();
-              await catalystSignOut(dest);
+              window.location.assign(hostedAuthLoginUrl());
               return;
             }
-            // Exhausted retries — fall through to Sign-in with guidance.
-            setError(
-              "Catalyst still has an active session cookie. Use Switch account again, or clear site data for this host, then Sign in with email.",
-            );
-          } else if (wantSwitch || isSwitchPending()) {
-            clearLogoutPending();
-            clearSignOutAttempted();
-            clearLogoutCookieRetry();
-            clearSwitchPending();
-            setMode("redirecting");
-            window.location.assign(hostedAuthLoginUrl());
-            return;
           }
+          // Plain Logout (or Switch exhausted): stay on SPA Sign-in gate — no remint.
         } catch {
           // fall through to sign-in
         }

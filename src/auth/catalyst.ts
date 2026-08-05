@@ -358,6 +358,7 @@ export function resolveCatalystZaid(): string {
 /**
  * SDK `constructSignOutUrl` equivalent: `{origin}/baas/logout?logout=true&PROJECT_ID={zaid}&serviceurl=…`
  * 302 → executor `/accounts/logout?client_portal=…` (SPA may swallow — see redirectCatalystLogoutPath).
+ * Prefer {@link nimbusAccountsLogoutUrl} for real IAM cookie clear (D-099).
  */
 export function baasLogoutUrl(redirectUrl = loggedOutUrl()): string {
   const params = new URLSearchParams({
@@ -366,6 +367,39 @@ export function baasLogoutUrl(redirectUrl = loggedOutUrl()): string {
     serviceurl: redirectUrl,
   });
   return `${appOrigin()}/baas/logout?${params.toString()}`;
+}
+
+/**
+ * Lane B Nimbus host whose name matches Catalyst’s `_iamadt_client_*` Set-Cookie Domain.
+ * `/accounts/logout` on onslate.in emits the same clear with Domain=nimbuspop — browsers ignore it
+ * (host mismatch). Executor often emits no clear. Nimbus host is the path that actually clears (D-099).
+ */
+export const LANE_B_NIMBUS_ORIGIN = "https://slate-6487000000004048-in.nimbuspop.com";
+
+export function resolveNimbusOrigin(): string {
+  try {
+    const host = window.location.hostname.toLowerCase();
+    if (host.endsWith(".nimbuspop.com") && host.startsWith("slate-")) {
+      return `${window.location.protocol}//${window.location.host}`;
+    }
+  } catch {
+    // ignore
+  }
+  return LANE_B_NIMBUS_ORIGIN;
+}
+
+/**
+ * Same-origin-to-Nimbus logout. Response Set-Cookie clears `_iamadt_client_{zaid}` when Domain matches.
+ * SPA then bounces to accounts.zohoportal.in (index.html / redirectCatalystLogoutPath).
+ */
+export function nimbusAccountsLogoutUrl(redirectUrl = loggedOutUrl()): string {
+  const params = new URLSearchParams({
+    client_portal: "true",
+    zaid: resolveCatalystZaid(),
+    serviceurl: redirectUrl,
+    servicename: "ZOHOCATALYST",
+  });
+  return `${resolveNimbusOrigin()}/accounts/logout?${params.toString()}`;
 }
 
 /**
@@ -399,17 +433,25 @@ export function clearClientVisibleAuthCookies(): void {
 }
 
 /**
- * Catalyst `signOut` / baas logout lands on `…catalystappexecutor.in/accounts/logout?…`.
- * Slate SPA swallows that path — bounce to **accounts.zohoportal.in** so logout can finish.
+ * `/accounts/logout` is swallowed by the Slate SPA.
+ *
+ * - On **nimbuspop**: response clears `_iamadt_client_*` (Domain matches) → then bounce to portal.
+ * - On **onslate / executor**: upgrade to nimbus first so the clear is effective (D-099).
  */
 export function redirectCatalystLogoutPath(): boolean {
   if (!isCatalystLogoutPath()) return false;
-  if (window.location.hostname.toLowerCase().includes("zohoportal")) return false;
+  const host = window.location.hostname.toLowerCase();
+  if (host.includes("zohoportal")) return false;
 
-  // Preserve serviceurl / client_portal query; host must be the portal (not SPA).
-  const target = `https://accounts.zohoportal.in${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const pathAndQuery = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const win = window.top ?? window;
-  win.location.replace(target);
+
+  if (!host.includes("nimbuspop.com")) {
+    win.location.replace(`${resolveNimbusOrigin()}${pathAndQuery}`);
+    return true;
+  }
+
+  win.location.replace(`https://accounts.zohoportal.in${pathAndQuery}`);
   return true;
 }
 
@@ -501,54 +543,22 @@ export function clearLogoutCookieRetry(): void {
 /**
  * Clear Catalyst session (D-099).
  *
- * Official Hosted Auth uses `catalyst.auth.signOut(hostedLoginUrl)`.
- * That hits `/baas/logout` → executor `/accounts/logout` (SPA may swallow) → we bounce to
- * accounts.zohoportal.in. Portal-only logout skips `/baas/logout` and left app cookies alive,
- * so Switch account SSO’d back to the SPA Sign-in gate.
+ * Root cause: `/accounts/logout` clears `_iamadt_client_*` with Domain=`…nimbuspop.com`.
+ * That Set-Cookie is honored only when the request host is Nimbus — ignored on onslate.in,
+ * and often missing on catalystappexecutor. Portal-only / baas→executor paths therefore
+ * left the session cookie alive (Switch SSO loop).
+ *
+ * Flow: Nimbus `/accounts/logout?serviceurl=…` (cookie clear) → SPA early-bounce to portal
+ * → portal finishes → `redirectUrl` (SPA gate or Hosted login).
  */
 export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
   markSignOutAttempted();
   clearClientVisibleAuthCookies();
 
-  const baas = baasLogoutUrl(redirectUrl);
-  const portal = portalClientLogoutUrl(redirectUrl);
-
+  const target = nimbusAccountsLogoutUrl(redirectUrl);
   try {
-    await ensureCatalystSdk();
-    const auth = window.catalyst?.auth;
-    if (typeof auth?.signOut === "function") {
-      auth.signOut(redirectUrl);
-      // If SDK navigation is swallowed by the SPA, force baas then portal.
-      window.setTimeout(() => {
-        try {
-          (window.top ?? window).location.replace(baas);
-        } catch {
-          window.location.replace(baas);
-        }
-      }, 900);
-      window.setTimeout(() => {
-        try {
-          (window.top ?? window).location.replace(portal);
-        } catch {
-          window.location.replace(portal);
-        }
-      }, 2200);
-      return;
-    }
+    (window.top ?? window).location.assign(target);
   } catch {
-    // fall through
+    window.location.assign(target);
   }
-
-  try {
-    (window.top ?? window).location.assign(baas);
-  } catch {
-    window.location.assign(baas);
-  }
-  window.setTimeout(() => {
-    try {
-      (window.top ?? window).location.replace(portal);
-    } catch {
-      window.location.replace(portal);
-    }
-  }, 2000);
 }

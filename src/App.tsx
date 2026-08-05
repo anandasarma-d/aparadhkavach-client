@@ -59,7 +59,7 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
-    // Clear JWT locally, then SDK/baas logout → portal → SPA gate (D-099; not portal-only).
+    // Clear JWT locally, then Nimbus /accounts/logout (IAM cookie Domain match) → portal → SPA gate (D-099).
     markLogoutPending();
     markSignOutAttempted();
     setLoggingOut(true);

@@ -7,8 +7,9 @@
     <link rel="apple-touch-icon" href="/aparadhkavach-logo.png" />
     <title>AparadhKavach — Repeat-Offender Risk Lookup</title>
     <!--
-      Catalyst baas/logout 302s to …/accounts/logout on the executor host; Slate serves this SPA
-      instead of Zoho’s logout page. Bounce to accounts.zohoportal.in before React boots (D-099).
+      D-099: `/accounts/logout` is served as this SPA. Catalyst clears `_iamadt_client_*` with
+      Domain=…nimbuspop.com — effective only on the Nimbus host. Upgrade onslate/executor →
+      Nimbus first (Set-Cookie applies before this script), then Nimbus → portal.
     -->
     <script>
       (function () {
@@ -17,9 +18,12 @@
           var host = (location.hostname || "").toLowerCase();
           if (path.indexOf("/accounts/logout") === -1) return;
           if (host.indexOf("zohoportal") !== -1) return;
-          location.replace(
-            "https://accounts.zohoportal.in" + location.pathname + location.search + location.hash,
-          );
+          var rest = location.pathname + location.search + location.hash;
+          if (host.indexOf("nimbuspop.com") === -1) {
+            location.replace("https://slate-6487000000004048-in.nimbuspop.com" + rest);
+            return;
+          }
+          location.replace("https://accounts.zohoportal.in" + rest);
         } catch (e) {
           /* ignore */
         }
