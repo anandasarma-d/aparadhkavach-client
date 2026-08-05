@@ -89,7 +89,7 @@ export function QaPage() {
         </p>
       </header>
 
-      <form onSubmit={onSubmit} className="mb-5 space-y-3">
+      <form onSubmit={onSubmit} noValidate className="mb-5 space-y-3">
         <div className="flex flex-wrap gap-2" role="group" aria-label="Seed type">
           <ModeChip active={mode === "accused"} onClick={() => selectMode("accused")}>
             Accused
@@ -110,7 +110,7 @@ export function QaPage() {
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="rounded bg-[var(--accent)] px-4 py-2 font-[family-name:var(--font-mono)] text-[12.5px] font-medium text-white disabled:opacity-50"
+            className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50"
           >
             {loading ? "Asking…" : "Ask"}
           </button>
