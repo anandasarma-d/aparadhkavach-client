@@ -8,13 +8,15 @@ import {
   clearSignOutAttempted,
   ensureCatalystSdk,
   hostedAuthLoginUrl,
-  isCatalystAuthenticated,
   markSignOutAttempted,
   portalLogoutUrl,
+  readCatalystAuthState,
+  readCatalystIdentity,
+  type CatalystUser,
   redirectCatalystLogoutPath,
   redirectExecutorShellToPublicHost,
   redirectInviteConfirmToPortal,
-  readCatalystIdentity,
+  warmAuthServices,
   wasSignOutAttempted,
 } from "./auth/catalyst";
 import { RoleMenu } from "./rbac/RoleMenu";
@@ -69,10 +71,31 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
   useEffect(() => {
     let cancelled = false;
 
-    async function mintFromCatalyst() {
+    async function mintFromCatalyst(preferredUser: CatalystUser | null = null) {
       setMode("minting");
+      setBusy(true);
+      // Start Auth hop ASAP — role is validated server-side (D-080 / D-085).
+      setMintStep("Minting AparadhKavach session…");
+
+      const userIdHint =
+        preferredUser != null
+          ? String(preferredUser.user_id ?? preferredUser.userId ?? "").trim()
+          : "";
+      const emailHint =
+        preferredUser != null ? preferredUser.email_id ?? preferredUser.email : undefined;
+
+      if (userIdHint) {
+        // Fast path: isUserAuthenticated already returned the user — skip extra profile RPCs.
+        const session = await createCatalystSession({
+          catalystUserId: userIdHint,
+          email: emailHint,
+        });
+        if (!cancelled) onSignedIn(session);
+        return;
+      }
+
       setMintStep("Reading Catalyst profile…");
-      const identity = await readCatalystIdentity();
+      const identity = await readCatalystIdentity(preferredUser);
       if (!identity) {
         throw new Error(
           "Signed in to Catalyst but could not read user profile (getCurrentProjectUser returned empty).",
@@ -87,6 +110,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
 
     async function boot() {
+      // Warm Auth/Gateway while SDK loads — Hosted return mint often waits on cold AppSail (D-085).
+      warmAuthServices();
+
       if (breakOutOfAuthFrameIfNested()) {
         setMode("redirecting");
         return;
@@ -135,8 +161,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
        */
       if (fromLogout || isLogoutPending()) {
         try {
-          const stillIn = await isCatalystAuthenticated();
-          if (stillIn && !wasSignOutAttempted()) {
+          const state = await readCatalystAuthState();
+          if (state.authenticated && !wasSignOutAttempted()) {
             markSignOutAttempted();
             setMode("redirecting");
             window.location.replace(portalLogoutUrl(hostedAuthLoginUrl()));
@@ -152,9 +178,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       }
 
       try {
-        if (await isCatalystAuthenticated()) {
-          setBusy(true);
-          await mintFromCatalyst();
+        const state = await readCatalystAuthState();
+        if (state.authenticated) {
+          await mintFromCatalyst(state.user);
           return;
         }
       } catch (err: unknown) {
@@ -178,11 +204,20 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep Auth warm while the officer reads the landing card (D-085).
+  useEffect(() => {
+    if (mode !== "sign-in") return;
+    warmAuthServices();
+    const id = window.setInterval(() => warmAuthServices(), 45_000);
+    return () => window.clearInterval(id);
+  }, [mode]);
+
   function goHostedSignIn() {
     setError(null);
     setMode("redirecting");
     clearLogoutPending();
     clearSignOutAttempted();
+    warmAuthServices();
     window.location.assign(hostedAuthLoginUrl());
   }
 

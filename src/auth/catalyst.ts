@@ -8,7 +8,7 @@ import { type AppRole, BOOTSTRAP_ROLES } from "../rbac/roleMatrix";
 const WEB_SDK_SRC = "https://static.zohocdn.com/catalyst/sdk/js/4.4.0/catalystWebSDK.js";
 const INIT_SRC = "/__catalyst/sdk/init.js";
 
-type CatalystUser = {
+export type CatalystUser = {
   user_id?: string | number;
   userId?: string | number;
   email_id?: string;
@@ -77,6 +77,24 @@ export function ensureCatalystSdk(): Promise<boolean> {
   return scriptsPromise;
 }
 
+
+/** Fire-and-forget AppSail warm so Hosted return mint hits a hot Auth/Gateway (D-085). */
+export function warmAuthServices(): void {
+  const gw = (import.meta.env.VITE_API_GATEWAY_URL ?? "").replace(/\/$/, "");
+  const targets = [
+    gw ? `${gw}/health` : "/health",
+    // Direct Auth health — no-cors still opens the AppSail (browser may opaque-fail).
+    "https://auth-service-50044400287.development.catalystappsail.in/health",
+  ];
+  for (const url of targets) {
+    try {
+      void fetch(url, { mode: "no-cors", cache: "no-store" }).catch(() => undefined);
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export function catalystAvailable(): boolean {
   return typeof window.catalyst?.auth?.signIn === "function";
 }
@@ -99,28 +117,53 @@ function unwrapUser(result: unknown): CatalystUser | null {
 }
 
 export async function isCatalystAuthenticated(): Promise<boolean> {
+  const state = await readCatalystAuthState();
+  return state.authenticated;
+}
+
+/**
+ * One SDK round-trip: auth flag + optional user payload (Web SDK v4 often returns the user
+ * inside isUserAuthenticated). Prefer this over isAuthenticated + separate profile fetch (D-085).
+ */
+export async function readCatalystAuthState(): Promise<{
+  authenticated: boolean;
+  user: CatalystUser | null;
+}> {
   const auth = window.catalyst?.auth;
-  if (!auth?.isUserAuthenticated) return false;
+  if (!auth?.isUserAuthenticated) return { authenticated: false, user: null };
   try {
     const result = await auth.isUserAuthenticated();
-    if (typeof result === "boolean") return result;
+    if (typeof result === "boolean") {
+      return { authenticated: result, user: null };
+    }
     if (result && typeof result === "object" && "content" in result) {
       const content = (result as { content?: unknown }).content;
-      if (typeof content === "boolean") return content;
-      return Boolean(unwrapUser(result));
+      if (typeof content === "boolean") {
+        return { authenticated: content, user: null };
+      }
+      const user = unwrapUser(result);
+      return { authenticated: Boolean(user) || content != null, user };
     }
-    return Boolean(unwrapUser(result));
+    const user = unwrapUser(result);
+    return { authenticated: Boolean(user), user };
   } catch {
-    return false;
+    return { authenticated: false, user: null };
   }
 }
 
-async function fetchCurrentUserRaw(): Promise<CatalystUser | null> {
+async function fetchCurrentUserRaw(
+  preferred: CatalystUser | null = null,
+): Promise<CatalystUser | null> {
+  if (preferred) return preferred;
+
   const cat = window.catalyst;
   if (!cat) return null;
 
+  // Prefer isUserAuthenticated first — often already has the user (avoids extra RPCs on mint).
   const attempts: Array<() => Promise<unknown>> = [];
-
+  if (cat.auth?.isUserAuthenticated) {
+    attempts.push(() => cat.auth!.isUserAuthenticated());
+  }
   const um = cat.userManagement ?? cat.auth?.userManagement;
   if (um?.getCurrentProjectUser) {
     attempts.push(() => um.getCurrentProjectUser!());
@@ -130,10 +173,6 @@ async function fetchCurrentUserRaw(): Promise<CatalystUser | null> {
   }
   if (cat.auth?.getCurrentUser) {
     attempts.push(() => cat.auth!.getCurrentUser!());
-  }
-  // Web SDK v4: isUserAuthenticated resolves to { content: <user> } when signed in.
-  if (cat.auth?.isUserAuthenticated) {
-    attempts.push(() => cat.auth!.isUserAuthenticated());
   }
 
   let lastError: unknown;
@@ -170,8 +209,10 @@ export type CatalystIdentity = {
   email?: string;
 };
 
-export async function readCatalystIdentity(): Promise<CatalystIdentity | null> {
-  const user = await fetchCurrentUserRaw();
+export async function readCatalystIdentity(
+  preferredUser: CatalystUser | null = null,
+): Promise<CatalystIdentity | null> {
+  const user = await fetchCurrentUserRaw(preferredUser);
   if (!user) return null;
 
   const roleRaw =
