@@ -6,6 +6,25 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/aparadhkavach-logo.png" />
     <title>AparadhKavach — Repeat-Offender Risk Lookup</title>
+    <!--
+      Catalyst baas/logout 302s to …/accounts/logout on the executor host; Slate serves this SPA
+      instead of Zoho’s logout page. Bounce to accounts.zohoportal.in before React boots (D-099).
+    -->
+    <script>
+      (function () {
+        try {
+          var path = (location.pathname || "").toLowerCase();
+          var host = (location.hostname || "").toLowerCase();
+          if (path.indexOf("/accounts/logout") === -1) return;
+          if (host.indexOf("zohoportal") !== -1) return;
+          location.replace(
+            "https://accounts.zohoportal.in" + location.pathname + location.search + location.hash,
+          );
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

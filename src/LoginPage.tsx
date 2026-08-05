@@ -4,12 +4,20 @@ import type { AuthSession } from "./auth/session";
 import { clearLogoutPending, isLogoutPending, markLogoutPending } from "./auth/session";
 import {
   breakOutOfAuthFrameIfNested,
+  bumpLogoutCookieRetry,
   catalystAvailable,
+  catalystSignOut,
+  clearLogoutCookieRetry,
   clearSignOutAttempted,
+  clearSwitchPending,
+  consumeSwitchQuery,
   ensureCatalystSdk,
+  getLogoutCookieRetry,
   hostedAuthLoginUrl,
+  isSwitchPending,
+  loggedOutUrl,
   markSignOutAttempted,
-  portalLogoutUrl,
+  markSwitchPending,
   readCatalystAuthState,
   readCatalystIdentity,
   type CatalystUser,
@@ -17,7 +25,6 @@ import {
   redirectExecutorShellToPublicHost,
   redirectInviteConfirmToPortal,
   warmAuthServices,
-  wasSignOutAttempted,
 } from "./auth/catalyst";
 import { RoleMenu } from "./rbac/RoleMenu";
 import { DEFAULT_ROLE, type AppRole } from "./rbac/roleMatrix";
@@ -34,6 +41,8 @@ type Mode =
   | "confirm-redirect"
   | "auth-stuck"
   | "redirecting";
+
+const MAX_LOGOUT_COOKIE_RETRIES = 2;
 
 /** Demo role picker only when explicitly enabled (D-080). Default off on Lane B Slate. */
 function allowDevMintUi(): boolean {
@@ -133,6 +142,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
+      const wantSwitch = consumeSwitchQuery() || isSwitchPending();
+      if (wantSwitch) markSwitchPending();
+
       const fromLogout = consumeLoggedOutQuery() || isLogoutPending();
       if (fromLogout) {
         markLogoutPending();
@@ -144,6 +156,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       if (!ok || !catalystAvailable()) {
         clearLogoutPending();
         clearSignOutAttempted();
+        clearLogoutCookieRetry();
+        clearSwitchPending();
         if (allowDevMintUi()) {
           setMode("fallback");
         } else {
@@ -156,16 +170,36 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       }
 
       /*
-       * After Logout we already bounced through accounts.zohoportal.in.
-       * If a cookie somehow remains, send user to Hosted login (not Embedded).
+       * After Logout / Switch: do not treat a surviving Catalyst cookie as “done”.
+       * Prior D-088 path skipped a second clear when wasSignOutAttempted → SPA Sign-in gate loop (D-099).
+       * Retry SDK/baas logout a few times, then open Hosted once the cookie is gone.
        */
-      if (fromLogout || isLogoutPending()) {
+      if (fromLogout || isLogoutPending() || wantSwitch) {
         try {
           const state = await readCatalystAuthState();
-          if (state.authenticated && !wasSignOutAttempted()) {
-            markSignOutAttempted();
+          if (state.authenticated) {
+            const retries = getLogoutCookieRetry();
+            if (retries < MAX_LOGOUT_COOKIE_RETRIES) {
+              bumpLogoutCookieRetry();
+              markSignOutAttempted();
+              setMode("redirecting");
+              // Switch → Hosted; plain Logout → SPA gate (loggedOut) after clear.
+              const dest =
+                wantSwitch || isSwitchPending() ? hostedAuthLoginUrl() : loggedOutUrl();
+              await catalystSignOut(dest);
+              return;
+            }
+            // Exhausted retries — fall through to Sign-in with guidance.
+            setError(
+              "Catalyst still has an active session cookie. Use Switch account again, or clear site data for this host, then Sign in with email.",
+            );
+          } else if (wantSwitch || isSwitchPending()) {
+            clearLogoutPending();
+            clearSignOutAttempted();
+            clearLogoutCookieRetry();
+            clearSwitchPending();
             setMode("redirecting");
-            window.location.replace(portalLogoutUrl(hostedAuthLoginUrl()));
+            window.location.assign(hostedAuthLoginUrl());
             return;
           }
         } catch {
@@ -173,6 +207,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         }
         clearLogoutPending();
         clearSignOutAttempted();
+        clearLogoutCookieRetry();
+        if (!wantSwitch) clearSwitchPending();
         if (!cancelled) setMode("sign-in");
         return;
       }
@@ -217,6 +253,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     setMode("redirecting");
     clearLogoutPending();
     clearSignOutAttempted();
+    clearLogoutCookieRetry();
+    clearSwitchPending();
     warmAuthServices();
     window.location.assign(hostedAuthLoginUrl());
   }
@@ -226,8 +264,10 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     setMode("redirecting");
     markSignOutAttempted();
     markLogoutPending();
-    // Portal logout clears Catalyst cookies; return to Hosted login for a fresh email form (D-088).
-    window.location.assign(portalLogoutUrl(hostedAuthLoginUrl()));
+    markSwitchPending();
+    clearLogoutCookieRetry();
+    // baas → portal → Hosted email form (D-099). Portal-only left cookies → SSO loop.
+    void catalystSignOut(hostedAuthLoginUrl());
   }
 
   const compact =

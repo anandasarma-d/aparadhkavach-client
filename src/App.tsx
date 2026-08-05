@@ -2,9 +2,11 @@ import { useState, type ReactNode } from "react";
 import { revokeSession } from "./api/authClient";
 import {
   clearSignOutAttempted,
-  hostedAuthLoginUrl,
+  catalystSignOut,
+  clearLogoutCookieRetry,
+  clearSwitchPending,
+  loggedOutUrl,
   markSignOutAttempted,
-  portalLogoutUrl,
 } from "./auth/catalyst";
 import {
   clearLogoutPending,
@@ -45,6 +47,8 @@ export function App() {
   function onSignedIn(next: AuthSession) {
     clearLogoutPending();
     clearSignOutAttempted();
+    clearLogoutCookieRetry();
+    clearSwitchPending();
     setLoggingOut(false);
     saveSession(next);
     setSession(next);
@@ -55,8 +59,7 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
-    // Clear JWT locally, then portal logout (clears Catalyst cookies) → Hosted login (D-088).
-    // Do not use SDK signOut → executor SPA swallow (that path kept cookies alive).
+    // Clear JWT locally, then SDK/baas logout → portal → SPA gate (D-099; not portal-only).
     markLogoutPending();
     markSignOutAttempted();
     setLoggingOut(true);
@@ -67,7 +70,7 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    window.location.assign(portalLogoutUrl(hostedAuthLoginUrl()));
+    void catalystSignOut(loggedOutUrl());
   }
 
   function showNetworkFor(accusedId: string) {

@@ -304,6 +304,11 @@ export function loggedOutUrl(): string {
   return `${appOrigin()}/?loggedOut=1`;
 }
 
+/** Post-logout land with Switch intent — open Hosted once Catalyst cookie is gone (D-099). */
+export function switchAccountLandingUrl(): string {
+  return `${appOrigin()}/?loggedOut=1&switch=1`;
+}
+
 /** After portal logout, land here to open Embedded — never auto-mint (D-086/D-087). */
 export function showLoginUrl(): string {
   return `${appOrigin()}/?showLogin=1`;
@@ -328,6 +333,16 @@ export function consumeShowLoginQuery(): boolean {
   return true;
 }
 
+/** True when URL asked to open Hosted after a clean logout (D-099). */
+export function consumeSwitchQuery(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("switch") !== "1") return false;
+  params.delete("switch");
+  const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, "", next || "/");
+  return true;
+}
+
 /** Lane B workbench ZAID (init.js). Used for portal logout when SPA swallows executor /accounts/logout. */
 export function resolveCatalystZaid(): string {
   try {
@@ -341,10 +356,30 @@ export function resolveCatalystZaid(): string {
 }
 
 /**
- * Hosted portal logout — clears Catalyst cookies. Prefer this over SDK signOut alone, which lands on
- * executor `/accounts/logout` where our SPA swallows the page and cookies survive (D-084/D-086).
+ * SDK `constructSignOutUrl` equivalent: `{origin}/baas/logout?logout=true&PROJECT_ID={zaid}&serviceurl=…`
+ * 302 → executor `/accounts/logout?client_portal=…` (SPA may swallow — see redirectCatalystLogoutPath).
+ */
+export function baasLogoutUrl(redirectUrl = loggedOutUrl()): string {
+  const params = new URLSearchParams({
+    logout: "true",
+    PROJECT_ID: resolveCatalystZaid(),
+    serviceurl: redirectUrl,
+  });
+  return `${appOrigin()}/baas/logout?${params.toString()}`;
+}
+
+/**
+ * Zoho portal logout. Prefer `/accounts/p/{zaid}/logout` (matches Hosted portal paths);
+ * keep client_portal form as fallback used by Catalyst baas/logout redirects.
  */
 export function portalLogoutUrl(redirectUrl = loggedOutUrl()): string {
+  const zaid = resolveCatalystZaid();
+  const params = new URLSearchParams({ serviceurl: redirectUrl });
+  return `https://accounts.zohoportal.in/accounts/p/${encodeURIComponent(zaid)}/logout?${params.toString()}`;
+}
+
+/** Same query shape Catalyst baas/logout 302s to (executor → portal bounce). */
+export function portalClientLogoutUrl(redirectUrl = loggedOutUrl()): string {
   const params = new URLSearchParams({
     client_portal: "true",
     zaid: resolveCatalystZaid(),
@@ -354,14 +389,24 @@ export function portalLogoutUrl(redirectUrl = loggedOutUrl()): string {
   return `https://accounts.zohoportal.in/accounts/logout?${params.toString()}`;
 }
 
+/** Best-effort clear of non-HttpOnly auth crumbs the Web SDK also clears on AppSail signOut. */
+export function clearClientVisibleAuthCookies(): void {
+  const expire = "Thu, 01 Jan 1970 00:00:01 GMT";
+  for (const name of ["CAUTH", "ZC_NEW_USER", "isalreadymember"]) {
+    document.cookie = `${name}=; path=/; expires=${expire}`;
+    document.cookie = `${name}=; path=/accounts; expires=${expire}`;
+  }
+}
+
 /**
- * Catalyst `signOut(serviceurl)` lands on `…catalystappexecutor.in/accounts/logout?…`.
+ * Catalyst `signOut` / baas logout lands on `…catalystappexecutor.in/accounts/logout?…`.
  * Slate SPA swallows that path — bounce to **accounts.zohoportal.in** so logout can finish.
  */
 export function redirectCatalystLogoutPath(): boolean {
   if (!isCatalystLogoutPath()) return false;
   if (window.location.hostname.toLowerCase().includes("zohoportal")) return false;
 
+  // Preserve serviceurl / client_portal query; host must be the portal (not SPA).
   const target = `https://accounts.zohoportal.in${window.location.pathname}${window.location.search}${window.location.hash}`;
   const win = window.top ?? window;
   win.location.replace(target);
@@ -411,6 +456,8 @@ export function redirectExecutorShellToPublicHost(): boolean {
 }
 
 const SIGNOUT_ATTEMPTED_KEY = "aparadhkavach.auth.signOutAttempted";
+const LOGOUT_COOKIE_RETRY_KEY = "aparadhkavach.auth.logoutCookieRetry";
+const SWITCH_PENDING_KEY = "aparadhkavach.auth.switchPending";
 
 export function markSignOutAttempted(): void {
   sessionStorage.setItem(SIGNOUT_ATTEMPTED_KEY, "1");
@@ -424,32 +471,84 @@ export function wasSignOutAttempted(): boolean {
   return sessionStorage.getItem(SIGNOUT_ATTEMPTED_KEY) === "1";
 }
 
-/** Clear Catalyst session via portal logout, then land on redirectUrl. */
+export function markSwitchPending(): void {
+  sessionStorage.setItem(SWITCH_PENDING_KEY, "1");
+}
+
+export function clearSwitchPending(): void {
+  sessionStorage.removeItem(SWITCH_PENDING_KEY);
+}
+
+export function isSwitchPending(): boolean {
+  return sessionStorage.getItem(SWITCH_PENDING_KEY) === "1";
+}
+
+export function getLogoutCookieRetry(): number {
+  const n = Number(sessionStorage.getItem(LOGOUT_COOKIE_RETRY_KEY) ?? "0");
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+export function bumpLogoutCookieRetry(): number {
+  const next = getLogoutCookieRetry() + 1;
+  sessionStorage.setItem(LOGOUT_COOKIE_RETRY_KEY, String(next));
+  return next;
+}
+
+export function clearLogoutCookieRetry(): void {
+  sessionStorage.removeItem(LOGOUT_COOKIE_RETRY_KEY);
+}
+
+/**
+ * Clear Catalyst session (D-099).
+ *
+ * Official Hosted Auth uses `catalyst.auth.signOut(hostedLoginUrl)`.
+ * That hits `/baas/logout` → executor `/accounts/logout` (SPA may swallow) → we bounce to
+ * accounts.zohoportal.in. Portal-only logout skips `/baas/logout` and left app cookies alive,
+ * so Switch account SSO’d back to the SPA Sign-in gate.
+ */
 export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
+  markSignOutAttempted();
+  clearClientVisibleAuthCookies();
+
+  const baas = baasLogoutUrl(redirectUrl);
+  const portal = portalClientLogoutUrl(redirectUrl);
+
   try {
     await ensureCatalystSdk();
     const auth = window.catalyst?.auth;
-    // Prefer SDK so Catalyst clears its cookies; it navigates to executor /accounts/logout
-    // which we bounce to the portal (redirectCatalystLogoutPath). Pass final destination
-    // as serviceurl so portal returns to redirectUrl after logout.
     if (typeof auth?.signOut === "function") {
       auth.signOut(redirectUrl);
-      // Fallback if SPA swallows logout and never leaves this page.
+      // If SDK navigation is swallowed by the SPA, force baas then portal.
       window.setTimeout(() => {
         try {
-          (window.top ?? window).location.replace(portalLogoutUrl(redirectUrl));
+          (window.top ?? window).location.replace(baas);
         } catch {
-          window.location.replace(portalLogoutUrl(redirectUrl));
+          window.location.replace(baas);
         }
-      }, 1200);
+      }, 900);
+      window.setTimeout(() => {
+        try {
+          (window.top ?? window).location.replace(portal);
+        } catch {
+          window.location.replace(portal);
+        }
+      }, 2200);
       return;
     }
   } catch {
-    // fall through to portal
+    // fall through
   }
+
   try {
-    (window.top ?? window).location.replace(portalLogoutUrl(redirectUrl));
+    (window.top ?? window).location.assign(baas);
   } catch {
-    window.location.replace(portalLogoutUrl(redirectUrl));
+    window.location.assign(baas);
   }
+  window.setTimeout(() => {
+    try {
+      (window.top ?? window).location.replace(portal);
+    } catch {
+      window.location.replace(portal);
+    }
+  }, 2000);
 }
