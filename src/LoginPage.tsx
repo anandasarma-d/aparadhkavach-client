@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createBootstrapSession, createCatalystSession } from "./api/authClient";
 import type { AuthSession } from "./auth/session";
-import { clearLogoutPending, isLogoutPending } from "./auth/session";
+import { clearLogoutPending } from "./auth/session";
 import {
   breakOutOfAuthFrameIfNested,
   catalystAvailable,
@@ -61,6 +61,9 @@ function formatAuthError(err: unknown): string {
  * Hosted Auth is the only sign-in UI (Catalyst email/password).
  * No SPA “Sign in with email / Switch account” gate — that overcomplicated logout (D-099).
  * Flow: unauthenticated → `/__catalyst/auth/login`; after password → `/` → mint JWT.
+ *
+ * D-101: never skip mint because of logoutPending — Hosted often strips serviceurl query
+ * params (authReturn), which turned post-password returns into an infinite Hosted loop.
  */
 export function LoginPage({ onSignedIn }: LoginPageProps) {
   const [mode, setMode] = useState<Mode>("loading");
@@ -99,7 +102,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           catalystUserId: userIdHint,
           email: emailHint,
         });
-        if (!cancelled) onSignedIn(session);
+        // Always apply — React Strict Mode can cancel the effect after mint completes.
+        onSignedIn(session);
         return;
       }
 
@@ -115,7 +119,23 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         catalystUserId: identity.sub,
         email: identity.email,
       });
-      if (!cancelled) onSignedIn(session);
+      onSignedIn(session);
+    }
+
+    async function waitForCatalystSession(): Promise<{
+      authenticated: boolean;
+      user: CatalystUser | null;
+    }> {
+      // Hosted cookie / SDK can lag a beat after password redirect.
+      let last = await readCatalystAuthState();
+      if (last.authenticated) return last;
+      for (let i = 0; i < 6; i++) {
+        await new Promise((r) => setTimeout(r, 350));
+        if (cancelled) return last;
+        last = await readCatalystAuthState();
+        if (last.authenticated) return last;
+      }
+      return last;
     }
 
     async function boot() {
@@ -141,31 +161,19 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      // Logout sets logoutPending then navigates to Hosted. That flag survives in
-      // sessionStorage across the Hosted round-trip. Only force Hosted again when we
-      // landed on the SPA *without* authReturn (D-101). After password, Hosted returns
-      // to /?authReturn=1 → clear flags and mint.
-      const authReturn = consumeAuthReturnQuery();
-      const fromLogout = consumeLoggedOutQuery() || isLogoutPending();
-      if (fromLogout) {
-        clearLogoutPending();
-        clearSignOutAttempted();
-        clearLogoutCookieRetry();
-        clearSwitchPending();
-        if (!authReturn) {
-          if (!cancelled) goHosted();
-          return;
-        }
-      }
+      // Drop logout / switch crumbs. Do NOT goHosted solely because of them (D-101):
+      // Hosted may return to bare `/` without authReturn while logoutPending is still set.
+      consumeAuthReturnQuery();
+      consumeLoggedOutQuery();
+      clearLogoutPending();
+      clearSignOutAttempted();
+      clearLogoutCookieRetry();
+      clearSwitchPending();
 
       const ok = await ensureCatalystSdk();
       if (cancelled) return;
 
       if (!ok || !catalystAvailable()) {
-        clearLogoutPending();
-        clearSignOutAttempted();
-        clearLogoutCookieRetry();
-        clearSwitchPending();
         if (allowDevMintUi()) {
           setMode("fallback");
         } else {
@@ -178,19 +186,11 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
       }
 
       try {
-        const state = await readCatalystAuthState();
+        const state = await waitForCatalystSession();
+        if (cancelled) return;
         if (state.authenticated) {
           await mintFromCatalyst(state.user);
           return;
-        }
-        // Hosted return sometimes races the cookie — brief retry before bouncing again.
-        if (authReturn) {
-          await new Promise((r) => setTimeout(r, 400));
-          const retry = await readCatalystAuthState();
-          if (retry.authenticated) {
-            await mintFromCatalyst(retry.user);
-            return;
-          }
         }
       } catch (err: unknown) {
         if (cancelled) return;
