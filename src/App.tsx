@@ -49,6 +49,11 @@ export function App() {
     clearSignOutAttempted();
     clearLogoutCookieRetry();
     clearSwitchPending();
+    try {
+      sessionStorage.removeItem("aparadhkavach.auth.cauthSeedRetry");
+    } catch {
+      // ignore
+    }
     setLoggingOut(false);
     saveSession(next);
     setSession(next);
@@ -59,7 +64,7 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
-    // Clear JWT locally, then Nimbus /accounts/logout (IAM cookie Domain match) → portal → SPA gate (D-099).
+    // Clear JWT, seed CAUTH, then Hosted IAM `/accounts/p/{zaid}/logout` (D-099 / Forgot Password path).
     markLogoutPending();
     markSignOutAttempted();
     setLoggingOut(true);

@@ -274,7 +274,9 @@ export function isCatalystConfirmPath(pathname = window.location.pathname): bool
 }
 
 export function isCatalystLogoutPath(pathname = window.location.pathname): boolean {
-  return pathname.toLowerCase().includes("/accounts/logout");
+  const p = pathname.toLowerCase();
+  // Both `/accounts/logout` and Hosted IAM `/accounts/p/{zaid}/logout` (D-099).
+  return p.includes("/accounts/logout") || /\/accounts\/p\/[^/]+\/logout\/?$/.test(p);
 }
 
 /**
@@ -356,9 +358,36 @@ export function resolveCatalystZaid(): string {
 }
 
 /**
+ * Hosted IAM portal-user logout (same family as Forgot Password / signin iframe).
+ * With Path=/accounts `CAUTH` cookie this returns a real 302 to `serviceurl` (not SPA).
+ * Without CAUTH, Slate serves the SPA — seed CAUTH first via {@link seedCatalystAccountsCauth}.
+ */
+export function portalUserLogoutUrl(redirectUrl = loggedOutUrl()): string {
+  const zaid = resolveCatalystZaid();
+  const params = new URLSearchParams({
+    servicename: "ZohoCatalyst",
+    serviceurl: redirectUrl,
+  });
+  return `${appOrigin()}/accounts/p/${encodeURIComponent(zaid)}/logout?${params.toString()}`;
+}
+
+/**
+ * Seed `CAUTH=true; Path=/accounts` so `/accounts/p/{zaid}/*` is handled by IAM, not the SPA.
+ * Same cookie Forgot Password / Hosted iframes rely on (D-099).
+ */
+export async function seedCatalystAccountsCauth(): Promise<void> {
+  const zaid = resolveCatalystZaid();
+  const seed = `${appOrigin()}/accounts/p/${encodeURIComponent(zaid)}/password?servicename=ZohoCatalyst&serviceurl=${encodeURIComponent(`${appOrigin()}/`)}`;
+  try {
+    await fetch(seed, { credentials: "include", redirect: "manual", cache: "no-store" });
+  } catch {
+    // Navigation fallback still attempted by caller.
+  }
+}
+
+/**
  * SDK `constructSignOutUrl` equivalent: `{origin}/baas/logout?logout=true&PROJECT_ID={zaid}&serviceurl=…`
- * 302 → executor `/accounts/logout?client_portal=…` (SPA may swallow — see redirectCatalystLogoutPath).
- * Prefer {@link nimbusAccountsLogoutUrl} for real IAM cookie clear (D-099).
+ * Prefer {@link portalUserLogoutUrl} after CAUTH seed (D-099).
  */
 export function baasLogoutUrl(redirectUrl = loggedOutUrl()): string {
   const params = new URLSearchParams({
@@ -433,18 +462,33 @@ export function clearClientVisibleAuthCookies(): void {
 }
 
 /**
- * `/accounts/logout` is swallowed by the Slate SPA.
+ * `/accounts/logout` and `/accounts/p/{zaid}/logout` may be swallowed by the Slate SPA.
  *
- * - On **nimbuspop**: response clears `_iamadt_client_*` (Domain matches) → then bounce to portal.
- * - On **onslate / executor**: upgrade to nimbus first so the clear is effective (D-099).
+ * - Portal-user logout without CAUTH → seed CAUTH and reload once (IAM then 302s).
+ * - On **nimbuspop**: cookie Domain matches → then bounce to portal.
+ * - On **onslate / executor** `/accounts/logout`: upgrade to Nimbus first.
  */
 export function redirectCatalystLogoutPath(): boolean {
   if (!isCatalystLogoutPath()) return false;
   const host = window.location.hostname.toLowerCase();
   if (host.includes("zohoportal")) return false;
 
-  const pathAndQuery = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const path = window.location.pathname;
+  const pathAndQuery = `${path}${window.location.search}${window.location.hash}`;
   const win = window.top ?? window;
+
+  // Hosted IAM path served as SPA → seed CAUTH and retry (Forgot Password pattern, D-099).
+  if (/\/accounts\/p\/[^/]+\/logout\/?$/i.test(path)) {
+    const key = "aparadhkavach.auth.cauthSeedRetry";
+    if (sessionStorage.getItem(key) !== "1") {
+      sessionStorage.setItem(key, "1");
+      void seedCatalystAccountsCauth().then(() => {
+        win.location.reload();
+      });
+      return true;
+    }
+    sessionStorage.removeItem(key);
+  }
 
   if (!host.includes("nimbuspop.com")) {
     win.location.replace(`${resolveNimbusOrigin()}${pathAndQuery}`);
@@ -543,22 +587,34 @@ export function clearLogoutCookieRetry(): void {
 /**
  * Clear Catalyst session (D-099).
  *
- * Root cause: `/accounts/logout` clears `_iamadt_client_*` with Domain=`…nimbuspop.com`.
- * That Set-Cookie is honored only when the request host is Nimbus — ignored on onslate.in,
- * and often missing on catalystappexecutor. Portal-only / baas→executor paths therefore
- * left the session cookie alive (Switch SSO loop).
+ * Forgot Password → “Terminate all sessions” works because Hosted IAM runs under
+ * `/accounts/p/{zaid}/…` with a `CAUTH` cookie. Without CAUTH, Slate serves our SPA instead.
  *
- * Flow: Nimbus `/accounts/logout?serviceurl=…` (cookie clear) → SPA early-bounce to portal
- * → portal finishes → `redirectUrl` (SPA gate or Hosted login).
+ * Flow: seed CAUTH (silent fetch to `/accounts/p/{zaid}/password`) → top-level navigate to
+ * `/accounts/p/{zaid}/logout?servicename=ZohoCatalyst&serviceurl=…` (real IAM 302).
+ * Fallback: Nimbus `/accounts/logout` if SPA still swallows after 1.5s.
  */
 export async function catalystSignOut(redirectUrl = loggedOutUrl()): Promise<void> {
   markSignOutAttempted();
   clearClientVisibleAuthCookies();
+  sessionStorage.removeItem("aparadhkavach.auth.cauthSeedRetry");
 
-  const target = nimbusAccountsLogoutUrl(redirectUrl);
+  await seedCatalystAccountsCauth();
+
+  const target = portalUserLogoutUrl(redirectUrl);
   try {
     (window.top ?? window).location.assign(target);
   } catch {
     window.location.assign(target);
   }
+
+  window.setTimeout(() => {
+    try {
+      const p = window.location.pathname.toLowerCase();
+      if (!p.includes("logout")) return;
+      (window.top ?? window).location.replace(nimbusAccountsLogoutUrl(redirectUrl));
+    } catch {
+      // ignore
+    }
+  }, 1500);
 }
