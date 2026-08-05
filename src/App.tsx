@@ -5,7 +5,7 @@ import {
   catalystSignOut,
   clearLogoutCookieRetry,
   clearSwitchPending,
-  loggedOutUrl,
+  hostedAuthLoginUrl,
   markSignOutAttempted,
 } from "./auth/catalyst";
 import {
@@ -64,7 +64,7 @@ export function App() {
 
   function logout() {
     const token = session?.accessToken;
-    // Clear JWT, seed CAUTH, then Hosted IAM `/accounts/p/{zaid}/logout` (D-099 / Forgot Password path).
+    // Clear JWT → IAM logout → Hosted email/password (no SPA gate). Enter any persona email next.
     markLogoutPending();
     markSignOutAttempted();
     setLoggingOut(true);
@@ -75,7 +75,7 @@ export function App() {
     if (token) {
       void revokeSession(token);
     }
-    void catalystSignOut(loggedOutUrl());
+    void catalystSignOut(hostedAuthLoginUrl());
   }
 
   function showNetworkFor(accusedId: string) {

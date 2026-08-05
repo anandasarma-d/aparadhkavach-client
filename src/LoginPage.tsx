@@ -1,22 +1,16 @@
 import { useEffect, useState } from "react";
 import { createBootstrapSession, createCatalystSession } from "./api/authClient";
 import type { AuthSession } from "./auth/session";
-import { clearLogoutPending, isLogoutPending, markLogoutPending } from "./auth/session";
+import { clearLogoutPending, isLogoutPending } from "./auth/session";
 import {
   breakOutOfAuthFrameIfNested,
-  bumpLogoutCookieRetry,
   catalystAvailable,
   catalystSignOut,
   clearLogoutCookieRetry,
   clearSignOutAttempted,
   clearSwitchPending,
-  consumeSwitchQuery,
   ensureCatalystSdk,
-  getLogoutCookieRetry,
   hostedAuthLoginUrl,
-  isSwitchPending,
-  markSignOutAttempted,
-  markSwitchPending,
   readCatalystAuthState,
   readCatalystIdentity,
   type CatalystUser,
@@ -35,13 +29,11 @@ type LoginPageProps = {
 type Mode =
   | "loading"
   | "minting"
-  | "sign-in"
   | "fallback"
   | "confirm-redirect"
   | "auth-stuck"
-  | "redirecting";
-
-const MAX_LOGOUT_COOKIE_RETRIES = 2;
+  | "redirecting"
+  | "unavailable";
 
 /** Demo role picker only when explicitly enabled (D-080). Default off on Lane B Slate. */
 function allowDevMintUi(): boolean {
@@ -65,9 +57,9 @@ function formatAuthError(err: unknown): string {
 }
 
 /**
- * Hosted Auth is the durable primary path (mvp2/10 close-out).
- * Embedded iframe caused D-075 whitespace and D-088 cookie/switch loops — do not remount it.
- * After password, Catalyst returns to service_url=/ → we mint JWT from catalystUserId.
+ * Hosted Auth is the only sign-in UI (Catalyst email/password).
+ * No SPA “Sign in with email / Switch account” gate — that overcomplicated logout (D-099).
+ * Flow: unauthenticated → `/__catalyst/auth/login`; after password → `/` → mint JWT.
  */
 export function LoginPage({ onSignedIn }: LoginPageProps) {
   const [mode, setMode] = useState<Mode>("loading");
@@ -79,10 +71,19 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
   useEffect(() => {
     let cancelled = false;
 
+    function goHosted() {
+      clearLogoutPending();
+      clearSignOutAttempted();
+      clearLogoutCookieRetry();
+      clearSwitchPending();
+      warmAuthServices();
+      setMode("redirecting");
+      window.location.replace(hostedAuthLoginUrl());
+    }
+
     async function mintFromCatalyst(preferredUser: CatalystUser | null = null) {
       setMode("minting");
       setBusy(true);
-      // Start Auth hop ASAP — role is validated server-side (D-080 / D-085).
       setMintStep("Minting AparadhKavach session…");
 
       const userIdHint =
@@ -93,7 +94,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         preferredUser != null ? preferredUser.email_id ?? preferredUser.email : undefined;
 
       if (userIdHint) {
-        // Fast path: isUserAuthenticated already returned the user — skip extra profile RPCs.
         const session = await createCatalystSession({
           catalystUserId: userIdHint,
           email: emailHint,
@@ -118,7 +118,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     }
 
     async function boot() {
-      // Warm Auth/Gateway while SDK loads — Hosted return mint often waits on cold AppSail (D-085).
       warmAuthServices();
 
       if (breakOutOfAuthFrameIfNested()) {
@@ -141,12 +140,15 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      const wantSwitch = consumeSwitchQuery() || isSwitchPending();
-      if (wantSwitch) markSwitchPending();
-
+      // Logout landed on SPA briefly — never remint; send to Hosted email form.
       const fromLogout = consumeLoggedOutQuery() || isLogoutPending();
       if (fromLogout) {
-        markLogoutPending();
+        clearLogoutPending();
+        clearSignOutAttempted();
+        clearLogoutCookieRetry();
+        clearSwitchPending();
+        if (!cancelled) goHosted();
+        return;
       }
 
       const ok = await ensureCatalystSdk();
@@ -163,53 +165,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           setError(
             "Catalyst Auth is unavailable on this host. Use the Slate workbench URL, or set VITE_ALLOW_DEV_MINT=true for local demo mint.",
           );
-          setMode("sign-in");
+          setMode("unavailable");
         }
-        return;
-      }
-
-      /*
-       * After Logout: never auto-mint (D-084). Do not auto-retry logout loops (that regressed
-       * D-088’s clean SPA gate into a red “cookie still active” banner).
-       *
-       * After Switch: if cookie cleared → Hosted email form; if still authed → one Nimbus clear
-       * retry then guidance (D-099).
-       */
-      if (fromLogout || isLogoutPending() || wantSwitch) {
-        try {
-          const state = await readCatalystAuthState();
-          if (wantSwitch || isSwitchPending()) {
-            if (state.authenticated) {
-              const retries = getLogoutCookieRetry();
-              if (retries < MAX_LOGOUT_COOKIE_RETRIES) {
-                bumpLogoutCookieRetry();
-                markSignOutAttempted();
-                setMode("redirecting");
-                await catalystSignOut(hostedAuthLoginUrl());
-                return;
-              }
-              setError(
-                "Catalyst still has an active session cookie. Use Switch account again, or clear site data for this host, then Sign in with email.",
-              );
-            } else {
-              clearLogoutPending();
-              clearSignOutAttempted();
-              clearLogoutCookieRetry();
-              clearSwitchPending();
-              setMode("redirecting");
-              window.location.assign(hostedAuthLoginUrl());
-              return;
-            }
-          }
-          // Plain Logout (or Switch exhausted): stay on SPA Sign-in gate — no remint.
-        } catch {
-          // fall through to sign-in
-        }
-        clearLogoutPending();
-        clearSignOutAttempted();
-        clearLogoutCookieRetry();
-        if (!wantSwitch) clearSwitchPending();
-        if (!cancelled) setMode("sign-in");
         return;
       }
 
@@ -230,7 +187,8 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         if (!cancelled) setBusy(false);
       }
 
-      if (!cancelled) setMode("sign-in");
+      // Not signed in to Catalyst → Hosted email/password (no SPA gate).
+      if (!cancelled) goHosted();
     }
 
     void boot();
@@ -240,42 +198,18 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep Auth warm while the officer reads the landing card (D-085).
-  useEffect(() => {
-    if (mode !== "sign-in") return;
-    warmAuthServices();
-    const id = window.setInterval(() => warmAuthServices(), 45_000);
-    return () => window.clearInterval(id);
-  }, [mode]);
-
-  function goHostedSignIn() {
+  function signOutToHosted() {
     setError(null);
     setMode("redirecting");
-    clearLogoutPending();
-    clearSignOutAttempted();
-    clearLogoutCookieRetry();
-    clearSwitchPending();
-    warmAuthServices();
-    window.location.assign(hostedAuthLoginUrl());
-  }
-
-  function switchAccount() {
-    setError(null);
-    setMode("redirecting");
-    markSignOutAttempted();
-    markLogoutPending();
-    markSwitchPending();
-    clearLogoutCookieRetry();
-    // baas → portal → Hosted email form (D-099). Portal-only left cookies → SSO loop.
     void catalystSignOut(hostedAuthLoginUrl());
   }
 
   const compact =
-    mode === "sign-in" ||
     mode === "minting" ||
     mode === "confirm-redirect" ||
     mode === "auth-stuck" ||
-    mode === "redirecting";
+    mode === "redirecting" ||
+    mode === "unavailable";
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-x-hidden bg-[var(--paper)] px-4 py-6 text-[var(--ink)] sm:px-6">
@@ -298,12 +232,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
           >
             AparadhKavach
           </h1>
-          {!compact && (
-            <p className="mt-2 max-w-[23rem] text-[14.5px] leading-relaxed text-[var(--ink-muted)]">
-              Crime Intelligence Platform for Karnataka Police — Support for risk
-              lookup, hotspot forecasts, criminal networks, similar cases, and Q&amp;A.
-            </p>
-          )}
         </div>
 
         <div className="rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3 shadow-[var(--shadow)] sm:p-4">
@@ -343,6 +271,17 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
             </div>
           )}
 
+          {mode === "unavailable" && (
+            <div className="space-y-3 text-center">
+              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">Sign-in unavailable</h2>
+              {error && (
+                <p className="text-left text-[13px] text-red-700" role="alert">
+                  {error}
+                </p>
+              )}
+            </div>
+          )}
+
           {mode === "auth-stuck" && (
             <div className="space-y-3 text-center">
               <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">
@@ -366,9 +305,9 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
               <button
                 type="button"
                 className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
-                onClick={() => switchAccount()}
+                onClick={() => signOutToHosted()}
               >
-                Sign out &amp; switch account
+                Sign out
               </button>
               {allowDevMintUi() && (
                 <button
@@ -380,47 +319,6 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
                   }}
                 >
                   Use demo role picker
-                </button>
-              )}
-            </div>
-          )}
-
-          {mode === "sign-in" && (
-            <div className="space-y-3 text-center">
-              <h2 className="text-[1.1rem] font-semibold text-[var(--ink)]">Sign in</h2>
-              <p className="text-[13px] leading-relaxed text-[var(--ink-muted)]">
-                Use your AparadhKavach Catalyst account (email + password). Hosted sign-in avoids
-                the Embedded iframe so account switch and logout stay reliable.
-              </p>
-              {error && (
-                <p className="text-left text-[13px] text-red-700" role="alert">
-                  {error}
-                </p>
-              )}
-              <button
-                type="button"
-                className="w-full rounded-md border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 text-[14px] font-semibold text-[var(--accent-ink)]"
-                onClick={() => goHostedSignIn()}
-              >
-                Sign in with email
-              </button>
-              <button
-                type="button"
-                className="w-full rounded-md border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5 text-[14px] font-medium text-[var(--ink)]"
-                onClick={() => switchAccount()}
-              >
-                Switch account
-              </button>
-              {allowDevMintUi() && (
-                <button
-                  type="button"
-                  className="w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
-                  onClick={() => {
-                    setError(null);
-                    setMode("fallback");
-                  }}
-                >
-                  Use demo role picker instead
                 </button>
               )}
             </div>
@@ -466,14 +364,14 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
               <button
                 type="button"
                 className="mt-2 w-full text-center font-[family-name:var(--font-mono)] text-[11px] text-[var(--ink-faint)] underline-offset-2 hover:underline"
-                onClick={() => setMode("sign-in")}
+                onClick={() => signOutToHosted()}
               >
-                Back to Hosted sign-in
+                Use Hosted sign-in
               </button>
             </form>
           )}
 
-          {error && mode !== "auth-stuck" && mode !== "sign-in" && mode !== "redirecting" && (
+          {error && mode !== "auth-stuck" && mode !== "unavailable" && mode !== "redirecting" && (
             <p className="mt-3 text-[13px] text-red-700" role="alert">
               {error}
             </p>
