@@ -319,11 +319,24 @@ export function showLoginUrl(): string {
 /**
  * Catalyst Hosted Auth login (platform page under /__catalyst — not our SPA).
  * Primary sign-in path after D-075/D-088 (Embedded iframe abandoned for demos).
+ *
+ * serviceurl includes {@code authReturn=1} so LoginPage can tell a Hosted success
+ * bounce from a post-logout SPA land that still has logoutPending (D-101).
  */
 export function hostedAuthLoginUrl(): string {
-  const serviceurl = `${appOrigin()}/`;
+  const serviceurl = `${appOrigin()}/?authReturn=1`;
   const params = new URLSearchParams({ serviceurl });
   return `${appOrigin()}/__catalyst/auth/login?${params.toString()}`;
+}
+
+/** True when Catalyst Hosted finished and redirected back to the SPA (D-101). */
+export function consumeAuthReturnQuery(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("authReturn") !== "1") return false;
+  params.delete("authReturn");
+  const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash}`;
+  window.history.replaceState({}, "", next || "/");
+  return true;
 }
 
 export function consumeShowLoginQuery(): boolean {

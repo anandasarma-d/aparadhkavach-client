@@ -9,6 +9,7 @@ import {
   clearLogoutCookieRetry,
   clearSignOutAttempted,
   clearSwitchPending,
+  consumeAuthReturnQuery,
   ensureCatalystSdk,
   hostedAuthLoginUrl,
   readCatalystAuthState,
@@ -140,15 +141,21 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         return;
       }
 
-      // Logout landed on SPA briefly — never remint; send to Hosted email form.
+      // Logout sets logoutPending then navigates to Hosted. That flag survives in
+      // sessionStorage across the Hosted round-trip. Only force Hosted again when we
+      // landed on the SPA *without* authReturn (D-101). After password, Hosted returns
+      // to /?authReturn=1 → clear flags and mint.
+      const authReturn = consumeAuthReturnQuery();
       const fromLogout = consumeLoggedOutQuery() || isLogoutPending();
       if (fromLogout) {
         clearLogoutPending();
         clearSignOutAttempted();
         clearLogoutCookieRetry();
         clearSwitchPending();
-        if (!cancelled) goHosted();
-        return;
+        if (!authReturn) {
+          if (!cancelled) goHosted();
+          return;
+        }
       }
 
       const ok = await ensureCatalystSdk();
@@ -175,6 +182,15 @@ export function LoginPage({ onSignedIn }: LoginPageProps) {
         if (state.authenticated) {
           await mintFromCatalyst(state.user);
           return;
+        }
+        // Hosted return sometimes races the cookie — brief retry before bouncing again.
+        if (authReturn) {
+          await new Promise((r) => setTimeout(r, 400));
+          const retry = await readCatalystAuthState();
+          if (retry.authenticated) {
+            await mintFromCatalyst(retry.user);
+            return;
+          }
         }
       } catch (err: unknown) {
         if (cancelled) return;
