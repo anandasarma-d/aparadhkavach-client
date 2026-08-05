@@ -4,6 +4,7 @@ import { DEMO_ACCUSED } from "./lib/demoAccused";
 import { DEMO_FIRS } from "./lib/demoFirs";
 
 type SeedMode = "accused" | "fir";
+type BusyKind = "ask" | "followUp";
 
 const ACCUSED_ID_PATTERN = /^ACC-[A-Za-z0-9_-]+$/i;
 const FIR_ID_PATTERN = /^FIR-[A-Za-z0-9_-]+$/i;
@@ -18,32 +19,33 @@ export function QaPage() {
   const [followUp, setFollowUp] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState<BusyKind | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loading = busy != null;
 
   async function runAsk(
     input: Parameters<typeof askQuery>[0],
-    options?: { clearFollowUp?: boolean },
+    options: { kind: BusyKind; clearFollowUp?: boolean },
   ) {
-    setLoading(true);
+    setBusy(options.kind);
     setError(null);
     setResult(null);
     try {
       const data = await askQuery(input);
       setConversationId(data.conversationId);
       setResult(data);
-      if (options?.clearFollowUp) setFollowUp("");
+      if (options.clearFollowUp) setFollowUp("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
   }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const seed = query.trim();
-    if (!seed) return;
+    if (!seed || loading) return;
 
     const mismatch = validateSeedForMode(mode, seed);
     if (mismatch) {
@@ -56,13 +58,15 @@ export function QaPage() {
       mode === "accused"
         ? { accusedId: seed, firId: null, conversationId }
         : { accusedId: null, firId: seed, conversationId },
+      { kind: "ask" },
     );
   }
 
   async function onFollowUp(e: FormEvent) {
     e.preventDefault();
+    e.stopPropagation();
     const text = followUp.trim();
-    if (!text || !conversationId) return;
+    if (!text || !conversationId || loading) return;
     const ctx = result ? toFollowUpContext(result, mode, query) : null;
     await runAsk(
       {
@@ -72,7 +76,7 @@ export function QaPage() {
         followUp: text,
         followUpContext: ctx,
       },
-      { clearFollowUp: true },
+      { kind: "followUp", clearFollowUp: true },
     );
   }
 
@@ -90,7 +94,7 @@ export function QaPage() {
         followUp: `Tell me about ${id}`,
         followUpContext: ctx,
       },
-      { clearFollowUp: true },
+      { kind: "followUp", clearFollowUp: true },
     );
   }
 
@@ -167,7 +171,7 @@ export function QaPage() {
             disabled={loading || !query.trim()}
             className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50"
           >
-            {loading ? "Asking…" : "Ask"}
+            {busy === "ask" ? "Asking…" : "Ask"}
           </button>
           {conversationId && (
             <button
@@ -221,7 +225,7 @@ export function QaPage() {
               disabled={loading || !followUp.trim()}
               className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] disabled:opacity-50"
             >
-              {loading ? "Asking…" : "Ask follow-up"}
+              {busy === "followUp" ? "Asking…" : "Ask follow-up"}
             </button>
           </div>
           <p className="text-[12px] text-[var(--ink-faint)]">
