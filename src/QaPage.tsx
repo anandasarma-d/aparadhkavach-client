@@ -159,8 +159,8 @@ export function QaPage() {
           tap a citation) — the resolver maps it to a cited ACC-/FIR- and re-runs retrieval.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          Graph-RAC Steps A–B — follow-ups resolve to citations; Claude still sees only the current
-          pack (not chat history). Not voice, not vector search on this path.
+          Graph-RAC Steps A–D — follow-ups resolve to citations; Claude sees a bounded prior-turn
+          window plus the current pack (not full chat UI). Not voice, not vector search on this path.
         </p>
       </header>
 
