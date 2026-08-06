@@ -1,5 +1,10 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { askQuery, type QueryResult, type RelatedEntity } from "./api/queryClient";
+import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  askQuery,
+  type FollowUpContext,
+  type QueryResult,
+  type RelatedEntity,
+} from "./api/queryClient";
 import { DEMO_ACCUSED } from "./lib/demoAccused";
 import { DEMO_FIRS } from "./lib/demoFirs";
 
@@ -18,6 +23,8 @@ export function QaPage() {
   const [query, setQuery] = useState(DEMO_ACCUSED[5]?.accusedId ?? "ACC-00040");
   const [followUp, setFollowUp] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
+  /** Last successful answer citations — kept across loads/errors for follow-up hydrate. */
+  const [citationSnapshot, setCitationSnapshot] = useState<FollowUpContext | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyKind | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,11 +36,12 @@ export function QaPage() {
   ) {
     setBusy(options.kind);
     setError(null);
-    setResult(null);
+    // Keep prior result visible until the new answer arrives (follow-up needs snapshot too).
     try {
       const data = await askQuery(input);
       setConversationId(data.conversationId);
       setResult(data);
+      setCitationSnapshot(toFollowUpContext(data, mode, query));
       if (options.clearFollowUp) setFollowUp("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -50,7 +58,6 @@ export function QaPage() {
     const mismatch = validateSeedForMode(mode, seed);
     if (mismatch) {
       setError(mismatch);
-      setResult(null);
       return;
     }
 
@@ -62,12 +69,11 @@ export function QaPage() {
     );
   }
 
-  async function onFollowUp(e: FormEvent) {
-    e.preventDefault();
-    e.stopPropagation();
+  async function submitFollowUp() {
     const text = followUp.trim();
     if (!text || !conversationId || loading) return;
-    const ctx = result ? toFollowUpContext(result, mode, query) : null;
+    const ctx =
+      citationSnapshot ?? (result ? toFollowUpContext(result, mode, query) : null);
     await runAsk(
       {
         accusedId: null,
@@ -80,12 +86,21 @@ export function QaPage() {
     );
   }
 
+  function onFollowUpKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.stopPropagation();
+      void submitFollowUp();
+    }
+  }
+
   function askAboutCitedId(id: string) {
     if (!conversationId || loading) {
       setFollowUp(`Tell me about ${id}`);
       return;
     }
-    const ctx = result ? toFollowUpContext(result, mode, query) : null;
+    const ctx =
+      citationSnapshot ?? (result ? toFollowUpContext(result, mode, query) : null);
     void runAsk(
       {
         accusedId: null,
@@ -98,25 +113,29 @@ export function QaPage() {
     );
   }
 
+  function resetThreadLocal() {
+    setConversationId(null);
+    setResult(null);
+    setCitationSnapshot(null);
+    setFollowUp("");
+    setError(null);
+  }
+
   function pickAccused(id: string) {
     setMode("accused");
     setQuery(id);
-    setError(null);
-    setResult(null);
+    resetThreadLocal();
   }
 
   function pickFir(id: string) {
     setMode("fir");
     setQuery(id);
-    setError(null);
-    setResult(null);
+    resetThreadLocal();
   }
 
   function selectMode(next: SeedMode) {
     setMode(next);
-    setError(null);
-    setResult(null);
-    // Keep typed value, but warn if it clearly belongs to the other tab.
+    resetThreadLocal();
     const seed = query.trim();
     if (seed) {
       const mismatch = validateSeedForMode(next, seed);
@@ -125,10 +144,7 @@ export function QaPage() {
   }
 
   function startNewThread() {
-    setConversationId(null);
-    setResult(null);
-    setFollowUp("");
-    setError(null);
+    resetThreadLocal();
   }
 
   return (
@@ -207,7 +223,7 @@ export function QaPage() {
       </div>
 
       {conversationId && (
-        <form onSubmit={onFollowUp} noValidate className="mb-6 space-y-2">
+        <div className="mb-6 space-y-2">
           <p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--ink-faint)]">
             Follow-up
           </p>
@@ -215,13 +231,15 @@ export function QaPage() {
             <input
               value={followUp}
               onChange={(e) => setFollowUp(e.target.value)}
+              onKeyDown={onFollowUpKeyDown}
               placeholder='e.g. “What about those co-accused?” or “Tell me about FIR-003276”'
               className="min-w-[16rem] flex-1 rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--accent)]"
               aria-label="Follow-up question"
               disabled={loading}
             />
             <button
-              type="submit"
+              type="button"
+              onClick={() => void submitFollowUp()}
               disabled={loading || !followUp.trim()}
               className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] disabled:opacity-50"
             >
@@ -229,9 +247,10 @@ export function QaPage() {
             </button>
           </div>
           <p className="text-[12px] text-[var(--ink-faint)]">
-            Tip: tap a citation chip below to ask about that id.
+            Tip: tap a citation chip below to ask about that id. Only ids from this thread’s answer
+            are accepted.
           </p>
-        </form>
+        </div>
       )}
 
       {error && (
@@ -245,7 +264,9 @@ export function QaPage() {
 
       {loading && (
         <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
-          Assembling context and calling the model…
+          {busy === "followUp"
+            ? "Resolving follow-up and calling the model…"
+            : "Assembling context and calling the model…"}
         </p>
       )}
 
@@ -291,13 +312,7 @@ function toFollowUpContext(
   result: QueryResult,
   mode: SeedMode,
   seedInput: string,
-): {
-  accusedId: string | null;
-  firId: string | null;
-  evidenceSources: string[];
-  relatedFirs: string[];
-  relatedEntities: RelatedEntity[];
-} {
+): FollowUpContext {
   const seed = seedInput.trim();
   const fromMode =
     mode === "accused"

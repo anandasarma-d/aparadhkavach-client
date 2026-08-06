@@ -10,8 +10,9 @@ export function authHeaders(extra?: HeadersInit): Headers {
   if (!headers.has("Accept")) {
     headers.set("Accept", "application/json");
   }
-  // Trim — Safari can throw "did not match the expected pattern" on header values with newlines.
-  const token = accessToken()?.trim();
+  // Strip whitespace/control chars — Safari throws "did not match the expected pattern"
+  // when Authorization contains newlines or other illegal header bytes.
+  const token = accessToken()?.replace(/[\s\u0000-\u001F\u007F]/g, "");
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }

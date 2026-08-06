@@ -68,10 +68,22 @@ export async function askQuery(
   const base = apiGatewayBaseUrl();
   const url = `${base}/v1/queries:ask`;
   let res: Response;
+  let headers: Headers;
+  try {
+    headers = authHeaders({ "Content-Type": "application/json" });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (/did not match the expected pattern/i.test(raw)) {
+      throw new Error(
+        "Q&A request failed (browser rejected the auth header). Sign out, sign in again, then retry. Prefer keep-warm before a cold demo.",
+      );
+    }
+    throw new Error(`Q&A request failed (${raw}).`);
+  }
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: authHeaders({ "Content-Type": "application/json" }),
+      headers,
       body: JSON.stringify({
         accusedId: hasSeed ? accusedId : null,
         firId: hasSeed ? firId : null,
