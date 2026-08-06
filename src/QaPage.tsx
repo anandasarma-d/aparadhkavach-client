@@ -1,4 +1,11 @@
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import {
   askQuery,
   type FollowUpContext,
@@ -11,41 +18,65 @@ import { DEMO_FIRS } from "./lib/demoFirs";
 type SeedMode = "accused" | "fir";
 type BusyKind = "ask" | "followUp";
 
+/** One officer ask + assistant answer in the visible thread (mvp2/12 Step E). */
+type ThreadTurn = {
+  id: string;
+  officerText: string;
+  result: QueryResult;
+};
+
 const ACCUSED_ID_PATTERN = /^ACC-[A-Za-z0-9_-]+$/i;
 const FIR_ID_PATTERN = /^FIR-[A-Za-z0-9_-]+$/i;
 
 /**
- * Citation Q&A (mvp2/11) + conversation store (Step A) + follow-up resolver (Step B).
- * Honesty: history not yet packed into Claude prompt (Step D); chat UI is Step E.
+ * Citation Q&A (mvp2/11) + Graph-RAC A–D backend + Step E stacked chat thread.
  */
 export function QaPage() {
   const [mode, setMode] = useState<SeedMode>("accused");
   const [query, setQuery] = useState(DEMO_ACCUSED[5]?.accusedId ?? "ACC-00040");
   const [followUp, setFollowUp] = useState("");
-  const [result, setResult] = useState<QueryResult | null>(null);
+  /** Stacked Q&A turns for this browser session (not a full ChatGPT product). */
+  const [turns, setTurns] = useState<ThreadTurn[]>([]);
   /** Last successful answer citations — kept across loads/errors for follow-up hydrate. */
   const [citationSnapshot, setCitationSnapshot] = useState<FollowUpContext | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyKind | null>(null);
+  /** Officer text shown while the current ask is in flight. */
+  const [pendingOfficer, setPendingOfficer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const threadEndRef = useRef<HTMLDivElement | null>(null);
   const loading = busy != null;
+  const latestResult = turns.length > 0 ? turns[turns.length - 1].result : null;
+
+  useEffect(() => {
+    if (turns.length === 0 && !pendingOfficer) return;
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns.length, pendingOfficer, loading]);
 
   async function runAsk(
     input: Parameters<typeof askQuery>[0],
-    options: { kind: BusyKind; clearFollowUp?: boolean },
+    options: { kind: BusyKind; officerText: string; clearFollowUp?: boolean },
   ) {
     setBusy(options.kind);
     setError(null);
-    // Keep prior result visible until the new answer arrives (follow-up needs snapshot too).
+    setPendingOfficer(options.officerText);
     try {
       const data = await askQuery(input);
       setConversationId(data.conversationId);
-      setResult(data);
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: data.queryId || `${data.conversationId}-${prev.length + 1}`,
+          officerText: options.officerText,
+          result: data,
+        },
+      ]);
       setCitationSnapshot(toFollowUpContext(data, mode, query));
       if (options.clearFollowUp) setFollowUp("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      setPendingOfficer(null);
       setBusy(null);
     }
   }
@@ -65,7 +96,10 @@ export function QaPage() {
       mode === "accused"
         ? { accusedId: seed, firId: null, conversationId }
         : { accusedId: null, firId: seed, conversationId },
-      { kind: "ask" },
+      {
+        kind: "ask",
+        officerText: mode === "accused" ? `Ask about accused ${seed}` : `Ask about ${seed}`,
+      },
     );
   }
 
@@ -73,7 +107,8 @@ export function QaPage() {
     const text = followUp.trim();
     if (!text || !conversationId || loading) return;
     const ctx =
-      citationSnapshot ?? (result ? toFollowUpContext(result, mode, query) : null);
+      citationSnapshot ??
+      (latestResult ? toFollowUpContext(latestResult, mode, query) : null);
     await runAsk(
       {
         accusedId: null,
@@ -82,7 +117,7 @@ export function QaPage() {
         followUp: text,
         followUpContext: ctx,
       },
-      { kind: "followUp", clearFollowUp: true },
+      { kind: "followUp", officerText: text, clearFollowUp: true },
     );
   }
 
@@ -99,24 +134,27 @@ export function QaPage() {
       setFollowUp(`Tell me about ${id}`);
       return;
     }
+    const officerText = `Tell me about ${id}`;
     const ctx =
-      citationSnapshot ?? (result ? toFollowUpContext(result, mode, query) : null);
+      citationSnapshot ??
+      (latestResult ? toFollowUpContext(latestResult, mode, query) : null);
     void runAsk(
       {
         accusedId: null,
         firId: null,
         conversationId,
-        followUp: `Tell me about ${id}`,
+        followUp: officerText,
         followUpContext: ctx,
       },
-      { kind: "followUp", clearFollowUp: true },
+      { kind: "followUp", officerText, clearFollowUp: true },
     );
   }
 
   function resetThreadLocal() {
     setConversationId(null);
-    setResult(null);
+    setTurns([]);
     setCitationSnapshot(null);
+    setPendingOfficer(null);
     setFollowUp("");
     setError(null);
   }
@@ -159,8 +197,9 @@ export function QaPage() {
           tap a citation) — the resolver maps it to a cited ACC-/FIR- and re-runs retrieval.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          Graph-RAC Steps A–D — follow-ups resolve to citations; Claude sees a bounded prior-turn
-          window plus the current pack (not full chat UI). Not voice, not vector search on this path.
+          Graph-RAC Steps A–E — stacked thread in this session; follow-ups resolve to citations;
+          Claude sees a bounded prior-turn window plus the current pack. Not voice, not vector search
+          on this path.
         </p>
       </header>
 
@@ -247,8 +286,8 @@ export function QaPage() {
             </button>
           </div>
           <p className="text-[12px] text-[var(--ink-faint)]">
-            Tip: tap a citation chip below to ask about that id. Only ids from this thread’s answer
-            are accepted.
+            Tip: tap a citation chip under any answer to ask about that id. Only ids from this
+            thread’s citations are accepted.
           </p>
         </div>
       )}
@@ -262,23 +301,65 @@ export function QaPage() {
         </p>
       )}
 
-      {loading && (
-        <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
-          {busy === "followUp"
-            ? "Resolving follow-up and calling the model…"
-            : "Assembling context and calling the model…"}
-        </p>
+      {(turns.length > 0 || pendingOfficer) && (
+        <div className="mb-4 space-y-6" aria-label="Conversation thread">
+          {turns.map((turn, index) => (
+            <ThreadExchange
+              key={turn.id}
+              turn={turn}
+              turnIndex={index + 1}
+              onCiteClick={askAboutCitedId}
+            />
+          ))}
+          {pendingOfficer && (
+            <div className="space-y-3" aria-busy="true">
+              <OfficerBubble text={pendingOfficer} />
+              <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
+                {busy === "followUp"
+                  ? "Resolving follow-up and calling the model…"
+                  : "Assembling context and calling the model…"}
+              </p>
+            </div>
+          )}
+          <div ref={threadEndRef} />
+        </div>
       )}
 
-      {result && !loading && (
-        <QueryAnswerCard result={result} onCiteClick={askAboutCitedId} />
-      )}
-
-      {!result && !loading && !error && (
+      {turns.length === 0 && !pendingOfficer && !loading && !error && (
         <p className="text-[13.5px] text-[var(--ink-faint)]">
           Try ACC-00040 or FIR-003276 for a rehearsed Lane B demo seed.
         </p>
       )}
+    </div>
+  );
+}
+
+function OfficerBubble({ text }: { text: string }) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[92%] rounded-2xl rounded-br-md bg-[var(--accent-soft)] px-3.5 py-2.5 text-[13.5px] leading-relaxed text-[var(--accent-ink)]">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-[var(--accent-ink)]/80">
+          You
+        </p>
+        <p>{text}</p>
+      </div>
+    </div>
+  );
+}
+
+function ThreadExchange({
+  turn,
+  turnIndex,
+  onCiteClick,
+}: {
+  turn: ThreadTurn;
+  turnIndex: number;
+  onCiteClick: (id: string) => void;
+}) {
+  return (
+    <div className="space-y-3" aria-label={`Turn ${turnIndex}`}>
+      <OfficerBubble text={turn.officerText} />
+      <QueryAnswerCard result={turn.result} onCiteClick={onCiteClick} />
     </div>
   );
 }
