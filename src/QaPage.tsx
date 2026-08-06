@@ -186,7 +186,9 @@ export function QaPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-7 py-8">
+    <div
+      className={`mx-auto max-w-3xl px-7 py-8 ${conversationId ? "pb-28" : ""}`}
+    >
       <header className="mb-6">
         <p className="section-label">Investigator assist</p>
         <h1 className="font-[family-name:var(--font-display)] text-[28px] tracking-tight text-[var(--ink)]">
@@ -261,37 +263,6 @@ export function QaPage() {
         })}
       </div>
 
-      {conversationId && (
-        <div className="mb-6 space-y-2">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-[var(--ink-faint)]">
-            Follow-up
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <input
-              value={followUp}
-              onChange={(e) => setFollowUp(e.target.value)}
-              onKeyDown={onFollowUpKeyDown}
-              placeholder='e.g. “What about those co-accused?” or “Tell me about FIR-003276”'
-              className="min-w-[16rem] flex-1 rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--accent)]"
-              aria-label="Follow-up question"
-              disabled={loading}
-            />
-            <button
-              type="button"
-              onClick={() => void submitFollowUp()}
-              disabled={loading || !followUp.trim()}
-              className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] disabled:opacity-50"
-            >
-              {busy === "followUp" ? "Asking…" : "Ask follow-up"}
-            </button>
-          </div>
-          <p className="text-[12px] text-[var(--ink-faint)]">
-            Tip: tap a citation chip under any answer to ask about that id. Only ids from this
-            thread’s citations are accepted.
-          </p>
-        </div>
-      )}
-
       {error && (
         <p
           className="mb-4 rounded border border-[var(--risk-high)] bg-[var(--risk-high-soft)] px-3.5 py-3 text-[13.5px] text-[var(--risk-high)]"
@@ -329,6 +300,40 @@ export function QaPage() {
         <p className="text-[13.5px] text-[var(--ink-faint)]">
           Try ACC-00040 or FIR-003276 for a rehearsed Lane B demo seed.
         </p>
+      )}
+
+      {conversationId && (
+        <div
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--line)] bg-[var(--surface)]/95 shadow-[0_-4px_16px_rgba(24,36,55,0.06)] backdrop-blur-sm"
+          role="region"
+          aria-label="Follow-up composer"
+        >
+          <div className="mx-auto max-w-3xl space-y-2 px-7 py-3">
+            <div className="flex flex-wrap gap-2">
+              <input
+                value={followUp}
+                onChange={(e) => setFollowUp(e.target.value)}
+                onKeyDown={onFollowUpKeyDown}
+                placeholder='Follow-up — e.g. “What about the vehicle?” or “Tell me about FIR-…”'
+                className="min-w-[16rem] flex-1 rounded border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--accent)]"
+                aria-label="Follow-up question"
+                disabled={loading}
+              />
+              <button
+                type="button"
+                onClick={() => void submitFollowUp()}
+                disabled={loading || !followUp.trim()}
+                className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] disabled:opacity-50"
+              >
+                {busy === "followUp" ? "Asking…" : "Ask follow-up"}
+              </button>
+            </div>
+            <p className="text-[11.5px] text-[var(--ink-faint)]">
+              Tip: tap a citation chip under any answer. Vehicle / plate follow-ups re-open the owning
+              accused or FIR (Ask seeds are ACC-/FIR- only).
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );
