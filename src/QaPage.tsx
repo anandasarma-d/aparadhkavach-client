@@ -187,7 +187,7 @@ export function QaPage() {
 
   return (
     <div
-      className={`mx-auto max-w-3xl px-7 py-8 ${conversationId ? "pb-28" : ""}`}
+      className={`mx-auto max-w-3xl px-7 py-8 ${conversationId ? (error ? "pb-44" : "pb-28") : ""}`}
     >
       <header className="mb-6">
         <p className="section-label">Investigator assist</p>
@@ -199,8 +199,8 @@ export function QaPage() {
           tap a citation) — the resolver maps it to a cited ACC-/FIR- and re-runs retrieval.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          Graph-RAC Steps A–E — stacked thread in this session; follow-ups resolve to citations;
-          Claude sees a bounded prior-turn window plus the current pack. Not voice, not vector search
+          Graph-RAC Steps A–E — stacked thread in this session; follow-ups resolve to citations; the
+          model sees a bounded prior-turn window plus the current pack. Not voice, not vector search
           on this path.
         </p>
       </header>
@@ -263,7 +263,7 @@ export function QaPage() {
         })}
       </div>
 
-      {error && (
+      {error && !conversationId && (
         <p
           className="mb-4 rounded border border-[var(--risk-high)] bg-[var(--risk-high-soft)] px-3.5 py-3 text-[13.5px] text-[var(--risk-high)]"
           role="alert"
@@ -287,8 +287,8 @@ export function QaPage() {
               <OfficerBubble text={pendingOfficer} />
               <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
                 {busy === "followUp"
-                  ? "Resolving follow-up and calling the model…"
-                  : "Assembling context and calling the model…"}
+                  ? "Resolving follow-up and assembling the answer…"
+                  : "Assembling context and generating the answer…"}
               </p>
             </div>
           )}
@@ -309,6 +309,14 @@ export function QaPage() {
           aria-label="Follow-up composer"
         >
           <div className="mx-auto max-w-3xl space-y-2 px-7 py-3">
+            {error && (
+              <p
+                className="rounded border border-[var(--risk-high)] bg-[var(--risk-high-soft)] px-3.5 py-3 text-[13.5px] text-[var(--risk-high)]"
+                role="alert"
+              >
+                {error}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <input
                 value={followUp}
@@ -329,8 +337,8 @@ export function QaPage() {
               </button>
             </div>
             <p className="text-[11.5px] text-[var(--ink-faint)]">
-              Tip: tap a citation chip under any answer. Vehicle / plate follow-ups re-open the owning
-              accused or FIR (Ask seeds are ACC-/FIR- only).
+              Tip: tap an ACC-/FIR- citation chip under any answer. Vehicle / plate follow-ups re-open
+              the owning accused or FIR when a vehicle was cited.
             </p>
           </div>
         </div>
@@ -464,7 +472,7 @@ function QueryAnswerCard({
 }) {
   const softFail =
     result.confidenceScore === 0 &&
-    /unusable structured response|not configured|timed out|call failed|interrupted/i.test(
+    /unusable|not configured|timed out|generation failed|interrupted|could not produce/i.test(
       result.answer,
     );
   const briefingParas = useMemo(() => toParagraphs(result.answer), [result.answer]);
@@ -726,7 +734,12 @@ export function humanizeOfficerProse(raw: string): string {
     .replace(/\bCONTEXT block\b/gi, "linked case records")
     .replace(/\bCONTEXT\b/g, "linked case records")
     .replace(/\b1-hop(?:\s+graph)?\s+neighborhood\b/gi, "immediate linked records")
-    .replace(/\bneo4j\b/gi, "graph records")
+    .replace(/\bneo4j\b/gi, "case graph")
+    .replace(/\bpgvector\b/gi, "vector search")
+    .replace(/\bclaude\b/gi, "the model")
+    .replace(/\banthropic\b/gi, "the model")
+    .replace(/\bquickml\b/gi, "the risk model")
+    .replace(/\bsarvam\b/gi, "speech recognition")
     .replace(/\bMARKET_AREA\b/g, "market area")
     .replace(/\bATM_VICINITY\b/g, "ATM vicinity")
     .replace(/\b([A-Z]{2,}(?:_[A-Z0-9]+)+)\b/g, (_, code: string) => humanizeLabel(code));

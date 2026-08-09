@@ -125,7 +125,7 @@ export async function askQuery(
     }
     if (/read timed out|i\/o error|execution_time_exceeded|408/i.test(detail)) {
       throw new Error(
-        "Q&A timed out waiting for Orchestration/Claude. Run ./appsail-demo-keep-warm.sh --once (includes Ask warm), then retry.",
+        "Q&A timed out while assembling the answer. Run ./appsail-demo-keep-warm.sh --once, then retry.",
       );
     }
     if (/No conversation for conversationId/i.test(detail)) {
