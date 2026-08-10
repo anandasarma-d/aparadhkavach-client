@@ -199,9 +199,9 @@ export function QaPage() {
           tap a citation) — the resolver maps it to a cited ACC-/FIR- and re-runs retrieval.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          Graph-RAC Steps A–E — stacked thread in this session; follow-ups resolve to citations; the
-          model sees a bounded prior-turn window plus the current pack. Not voice, not vector search
-          on this path.
+          Graph-RAC Steps A–F — stacked thread in this session; follow-ups resolve to citations; “similar
+          cases / cases like this” uses vector search over FIR narratives; the model sees a bounded
+          prior-turn window plus the current pack. Not voice on this path.
         </p>
       </header>
 
@@ -322,7 +322,7 @@ export function QaPage() {
                 value={followUp}
                 onChange={(e) => setFollowUp(e.target.value)}
                 onKeyDown={onFollowUpKeyDown}
-                placeholder='Follow-up — e.g. “What about the vehicle?” or “Tell me about FIR-…”'
+                placeholder='Follow-up — e.g. “What about the vehicle?”, “Tell me about FIR-…”, or “Find similar cases”'
                 className="min-w-[16rem] flex-1 rounded border border-[var(--line)] bg-[var(--paper)] px-3 py-2.5 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--accent)]"
                 aria-label="Follow-up question"
                 disabled={loading}
@@ -337,8 +337,9 @@ export function QaPage() {
               </button>
             </div>
             <p className="text-[11.5px] text-[var(--ink-faint)]">
-              Tip: tap an ACC-/FIR- citation chip under any answer. Vehicle / plate follow-ups re-open
-              the owning accused or FIR when a vehicle was cited.
+              Tip: tap an ACC-/FIR- citation chip under any answer. Ask “find similar cases” after an
+              FIR (or a briefing that cites FIRs). Vehicle / plate follow-ups re-open the owning accused
+              or FIR when a vehicle was cited.
             </p>
           </div>
         </div>
