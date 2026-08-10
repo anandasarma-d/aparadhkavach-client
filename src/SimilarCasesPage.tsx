@@ -1,47 +1,51 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   DEFAULT_LIMIT,
   FirNotFoundError,
   MAX_LIMIT,
   fetchSimilarCases,
+  searchSimilarByText,
+  type FirTextSearch,
   type SimilarCases,
 } from "./api/similarCasesClient";
 import { DEMO_FIRS } from "./lib/demoFirs";
 
 const LIMIT_OPTIONS = [5, 10] as const;
-
-/**
- * The endpoint probes a FIR's *stored* vector, so the input must be a FIR id —
- * free text ("vehicle theft") would need a Voyage embed on the read path, which
- * is deliberately out of MVP-1 (Auto/18). Guard here so that mistake reads as a
- * hint rather than a raw 400/404 from the Gateway.
- */
 const FIR_ID_PATTERN = /^FIR-[A-Za-z0-9_-]+$/i;
+
+type SearchMode = "fir" | "text";
 
 type SimilarCasesPageProps = {
   /** FIR to load on mount — set when arriving from the Network view. */
   initialFirId?: string | null;
 };
 
+type DisplayResult =
+  | { kind: "fir"; data: SimilarCases }
+  | { kind: "text"; data: FirTextSearch };
+
 export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps) {
+  const [mode, setMode] = useState<SearchMode>(initialFirId ? "fir" : "fir");
   const [query, setQuery] = useState(initialFirId ?? "");
   const [firId, setFirId] = useState<string | null>(initialFirId);
+  const [textProbe, setTextProbe] = useState<string | null>(null);
   const [limit, setLimit] = useState<number>(DEFAULT_LIMIT);
-  const [result, setResult] = useState<SimilarCases | null>(null);
+  const [result, setResult] = useState<DisplayResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [rejectedInput, setRejectedInput] = useState<string | null>(null);
 
   useEffect(() => {
     if (initialFirId) {
+      setMode("fir");
       setQuery(initialFirId);
       setFirId(initialFirId);
+      setTextProbe(null);
     }
   }, [initialFirId]);
 
   useEffect(() => {
-    if (!firId) return;
+    if (mode !== "fir" || !firId) return;
     const controller = new AbortController();
     setLoading(true);
     setError(null);
@@ -49,7 +53,7 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
 
     fetchSimilarCases(firId, limit, controller.signal)
       .then((data) => {
-        setResult(data);
+        setResult({ kind: "fir", data });
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -64,34 +68,73 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
       });
 
     return () => controller.abort();
-  }, [firId, limit]);
+  }, [mode, firId, limit]);
+
+  useEffect(() => {
+    if (mode !== "text" || !textProbe) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    setNotFound(false);
+
+    searchSimilarByText(textProbe, limit, controller.signal)
+      .then((data) => {
+        setResult({ kind: "text", data });
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return;
+        setResult(null);
+        setLoading(false);
+        setError(err instanceof Error ? err.message : String(err));
+      });
+
+    return () => controller.abort();
+  }, [mode, textProbe, limit]);
+
+  function selectMode(next: SearchMode) {
+    if (next === mode) return;
+    setMode(next);
+    setResult(null);
+    setError(null);
+    setNotFound(false);
+    if (next === "fir") {
+      setTextProbe(null);
+    } else {
+      setFirId(null);
+    }
+  }
 
   function runLookup() {
-    const candidate = query.trim().toUpperCase();
+    const candidate = query.trim();
     if (!candidate) return;
 
-    if (!FIR_ID_PATTERN.test(candidate)) {
-      setRejectedInput(query.trim());
-      setResult(null);
+    if (mode === "fir") {
+      const id = candidate.toUpperCase();
+      if (!FIR_ID_PATTERN.test(id)) {
+        setError("Enter a FIR id such as FIR-002683, or switch to Narrative text.");
+        setResult(null);
+        setNotFound(false);
+        return;
+      }
       setError(null);
-      setNotFound(false);
+      setQuery(id);
+      setFirId(id);
       return;
     }
 
-    setRejectedInput(null);
-    setQuery(candidate);
-    setFirId(candidate);
+    setError(null);
+    setNotFound(false);
+    setTextProbe(candidate);
   }
 
   function pickDemoFir(id: string) {
-    setRejectedInput(null);
+    setMode("fir");
+    setError(null);
+    setNotFound(false);
+    setTextProbe(null);
     setQuery(id);
     setFirId(id);
-  }
-
-  function onQueryChange(value: string) {
-    setQuery(value);
-    if (rejectedInput) setRejectedInput(null);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -100,6 +143,8 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
       runLookup();
     }
   }
+
+  const active = mode === "fir" ? firId : textProbe;
 
   return (
     <div className="mx-auto max-w-6xl px-7 py-8">
@@ -112,34 +157,49 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
         </h1>
         <p className="mt-3 text-[15px] leading-relaxed text-[var(--ink-muted)]">
           Nearest past FIRs by <strong className="font-semibold text-[var(--ink)]">narrative
-          embedding</strong> (Voyage vectors, cosine similarity). This surfaces cases that read
-          alike — often the same modus operandi across districts. Ranking is the raw similarity
-          score only; no case-outcome claim or AI comparison is implied.
+          embedding</strong> (cosine similarity). Start from a FIR id, or type a short crime
+          narrative. Ranking is raw similarity only — not a crime-type filter, case-outcome claim,
+          or AI comparison.
         </p>
       </header>
 
+      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Search mode">
+        <ModeChip active={mode === "fir"} onClick={() => selectMode("fir")}>
+          FIR id
+        </ModeChip>
+        <ModeChip active={mode === "text"} onClick={() => selectMode("text")}>
+          Narrative text
+        </ModeChip>
+      </div>
+
       <div className="mb-6 flex flex-wrap items-center gap-2.5">
         <div className="min-w-[240px] flex-1">
-          <label className="sr-only" htmlFor="fir-search">
-            FIR id (FIR-NNNNNN)
+          <label className="sr-only" htmlFor="similar-search">
+            {mode === "fir" ? "FIR id" : "Narrative text"}
           </label>
           <input
-            id="fir-search"
+            id="similar-search"
             value={query}
-            list="similar-demo-firs"
-            placeholder="FIR id — e.g. FIR-002683"
+            list={mode === "fir" ? "similar-demo-firs" : undefined}
+            placeholder={
+              mode === "fir"
+                ? "FIR id — e.g. FIR-002683"
+                : "e.g. vehicle theft from parking lot at night"
+            }
             autoComplete="off"
-            onChange={(e) => onQueryChange(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             className="w-full rounded border border-[var(--line-strong)] bg-[var(--surface)] px-3.5 py-[11px] text-[14.5px] text-[var(--ink)] shadow-[var(--shadow)] outline-none placeholder:text-[var(--ink-faint)]"
           />
-          <datalist id="similar-demo-firs">
-            {DEMO_FIRS.map((f) => (
-              <option key={f.firId} value={f.firId}>
-                {f.crimeHint} · {f.districtHint}
-              </option>
-            ))}
-          </datalist>
+          {mode === "fir" && (
+            <datalist id="similar-demo-firs">
+              {DEMO_FIRS.map((f) => (
+                <option key={f.firId} value={f.firId}>
+                  {f.crimeHint} · {f.districtHint}
+                </option>
+              ))}
+            </datalist>
+          )}
         </div>
 
         <fieldset className="flex items-center gap-1 rounded border border-[var(--line)] bg-[var(--surface-2)] px-2 py-1.5">
@@ -171,46 +231,39 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
         </button>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <span className="text-[11.5px] uppercase tracking-wide text-[var(--ink-faint)]">Try</span>
-        {DEMO_FIRS.map((f) => (
-          <button
-            key={f.firId}
-            type="button"
-            onClick={() => pickDemoFir(f.firId)}
-            title={`${f.crimeHint} · ${f.districtHint}`}
-            className={`rounded-full border px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11.5px] transition-colors ${
-              firId === f.firId
-                ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"
-                : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"
-            }`}
-          >
-            {f.firId}
-          </button>
-        ))}
-      </div>
-
-      {rejectedInput && (
-        <div
-          className="rounded border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-4 py-4"
-          role="status"
-        >
-          <p className="text-[13.5px] font-semibold text-[var(--ink)]">
-            “{rejectedInput}” is not a FIR id
-          </p>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-muted)]">
-            This view starts from one case and finds the FIRs whose narratives are closest to it, so
-            it needs an id such as{" "}
-            <span className="font-[family-name:var(--font-mono)]">FIR-002683</span>. Searching by
-            crime type or free text is not part of MVP-1 — pick one of the ids above to see a worked
-            example.
-          </p>
+      {mode === "fir" && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-1.5">
+          <span className="text-[11.5px] uppercase tracking-wide text-[var(--ink-faint)]">Try</span>
+          {DEMO_FIRS.map((f) => (
+            <button
+              key={f.firId}
+              type="button"
+              onClick={() => pickDemoFir(f.firId)}
+              title={`${f.crimeHint} · ${f.districtHint}`}
+              className={`rounded-full border px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11.5px] transition-colors ${
+                firId === f.firId
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"
+                  : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"
+              }`}
+            >
+              {f.firId}
+            </button>
+          ))}
         </div>
+      )}
+
+      {mode === "text" && (
+        <p className="mb-6 text-[12.5px] leading-relaxed text-[var(--ink-muted)]">
+          Narrative mode ranks FIRs whose <em>narratives</em> are close to your phrase — not a
+          structured filter on crime type. Prefer a short modus description over a single word.
+        </p>
       )}
 
       {loading && (
         <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
-          Finding cases similar to {firId} (auto-retries if cold)…
+          {mode === "fir"
+            ? `Finding cases similar to ${firId} (auto-retries if cold)…`
+            : "Embedding your text and ranking similar FIRs…"}
         </p>
       )}
 
@@ -223,7 +276,7 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
         </p>
       )}
 
-      {notFound && !loading && (
+      {notFound && !loading && mode === "fir" && (
         <div
           className="rounded border border-dashed border-[var(--line-strong)] bg-[var(--surface-2)] px-4 py-4"
           role="status"
@@ -238,19 +291,49 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
         </div>
       )}
 
-      {result && !loading && !error && !rejectedInput && <SimilarResult result={result} />}
+      {result && !loading && !error && <SimilarResult result={result} />}
 
-      {!firId && !loading && !rejectedInput && (
+      {!active && !loading && !error && (
         <p className="text-[13.5px] text-[var(--ink-faint)]">
-          Enter a FIR id to find the closest past cases, or open one from a FIR in the Network view.
+          {mode === "fir"
+            ? "Enter a FIR id to find the closest past cases, or open one from a FIR in the Network view."
+            : "Enter a short narrative (e.g. vehicle theft from parking lot) to find close FIRs."}
         </p>
       )}
     </div>
   );
 }
 
-function SimilarResult({ result }: { result: SimilarCases }) {
-  const isEmpty = result.similarCases.length === 0;
+function ModeChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={
+        active
+          ? "rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-3 py-1.5 text-[13px] font-semibold text-[var(--accent-ink)]"
+          : "rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-[13px] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+function SimilarResult({ result }: { result: DisplayResult }) {
+  const rows = result.data.similarCases;
+  const isEmpty = rows.length === 0;
+  const label =
+    result.kind === "fir" ? result.data.firId : `“${result.data.query}”`;
 
   return (
     <>
@@ -258,10 +341,17 @@ function SimilarResult({ result }: { result: SimilarCases }) {
         <span className="font-[family-name:var(--font-display)] text-[18px] text-[var(--ink)]">
           Cases similar to
         </span>
-        <span className="font-[family-name:var(--font-mono)] text-[12.5px]">{result.firId}</span>
+        <span
+          className={
+            result.kind === "fir"
+              ? "font-[family-name:var(--font-mono)] text-[12.5px]"
+              : "max-w-xl text-[13px] text-[var(--ink)]"
+          }
+        >
+          {label}
+        </span>
         <span>
-          {result.similarCases.length} match
-          {result.similarCases.length === 1 ? "" : "es"} · top {result.limit}
+          {rows.length} match{rows.length === 1 ? "" : "es"} · top {result.data.limit}
         </span>
       </div>
 
@@ -272,8 +362,8 @@ function SimilarResult({ result }: { result: SimilarCases }) {
         >
           <p className="text-[13.5px] font-semibold text-[var(--ink)]">No similar cases</p>
           <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-muted)]">
-            {result.firId} is in the corpus but returned no neighbors. Nothing is inferred to fill
-            the gap.
+            Nothing ranked above the cut. Try another FIR id or a slightly longer narrative —
+            nothing is inferred to fill the gap.
           </p>
         </div>
       ) : (
@@ -294,7 +384,7 @@ function SimilarResult({ result }: { result: SimilarCases }) {
                 </tr>
               </thead>
               <tbody>
-                {result.similarCases.map((c) => (
+                {rows.map((c) => (
                   <tr key={c.firId} className="border-b border-[var(--line)] last:border-0">
                     <td className="px-5 py-2.5 font-[family-name:var(--font-mono)] text-[12.5px] text-[var(--ink)]">
                       {c.firId}

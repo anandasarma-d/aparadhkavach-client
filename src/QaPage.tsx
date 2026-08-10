@@ -199,9 +199,10 @@ export function QaPage() {
           tap a citation) — the resolver maps it to a cited ACC-/FIR- and re-runs retrieval.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          Graph-RAC Steps A–F — stacked thread in this session; follow-ups resolve to citations; “similar
+          Graph-RAC Steps A–G — stacked thread in this session; follow-ups resolve to citations; “similar
           cases / cases like this” uses vector search over FIR narratives; the model sees a bounded
-          prior-turn window plus the current pack. Not voice on this path.
+          prior-turn window plus the current pack. Server keeps the thread across AppSail recycle. Not
+          voice on this path.
         </p>
       </header>
 
