@@ -123,6 +123,15 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
       return;
     }
 
+    if (candidate.split(/\s+/).length < 2 || candidate.length < 12) {
+      setError(
+        "Use a short narrative (e.g. vehicle theft from parking lot), not a single word like “theft”.",
+      );
+      setResult(null);
+      setNotFound(false);
+      return;
+    }
+
     setError(null);
     setNotFound(false);
     setTextProbe(candidate);
