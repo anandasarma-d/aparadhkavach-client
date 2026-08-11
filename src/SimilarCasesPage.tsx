@@ -265,6 +265,7 @@ export function SimilarCasesPage({ initialFirId = null }: SimilarCasesPageProps)
         <p className="mb-6 text-[12.5px] leading-relaxed text-[var(--ink-muted)]">
           Narrative mode ranks FIRs whose <em>narratives</em> are close to your phrase — not a
           structured filter on crime type. Prefer a short modus description over a single word.
+          Weak matches (similarity below 0.40) are hidden.
         </p>
       )}
 
@@ -371,8 +372,9 @@ function SimilarResult({ result }: { result: DisplayResult }) {
         >
           <p className="text-[13.5px] font-semibold text-[var(--ink)]">No similar cases</p>
           <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--ink-muted)]">
-            Nothing ranked above the cut. Try another FIR id or a slightly longer narrative —
-            nothing is inferred to fill the gap.
+            {result.kind === "text"
+              ? "No FIR narratives scored at or above the similarity floor (0.40) for this phrase. Try a more specific modus description, or switch to FIR id."
+              : "Nothing ranked above the cut for this FIR. Try another FIR id — nothing is inferred to fill the gap."}
           </p>
         </div>
       ) : (
