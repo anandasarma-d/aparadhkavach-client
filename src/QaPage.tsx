@@ -8,6 +8,7 @@ import {
 } from "react";
 import {
   askQuery,
+  askVoiceFollowUp,
   type FollowUpContext,
   type QueryResult,
   type RelatedEntity,
@@ -16,7 +17,7 @@ import { DEMO_ACCUSED } from "./lib/demoAccused";
 import { DEMO_FIRS } from "./lib/demoFirs";
 
 type SeedMode = "accused" | "fir";
-type BusyKind = "ask" | "followUp";
+type BusyKind = "ask" | "followUp" | "voice";
 
 /** One officer ask + assistant answer in the visible thread (mvp2/12 Step E). */
 type ThreadTurn = {
@@ -44,6 +45,9 @@ export function QaPage() {
   /** Officer text shown while the current ask is in flight. */
   const [pendingOfficer, setPendingOfficer] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const loading = busy != null;
   const latestResult = turns.length > 0 ? turns[turns.length - 1].result : null;
@@ -119,6 +123,81 @@ export function QaPage() {
       },
       { kind: "followUp", officerText: text, clearFollowUp: true },
     );
+  }
+
+  async function submitVoiceBlob(audio: Blob) {
+    if (!conversationId || loading) return;
+    const ctx =
+      citationSnapshot ??
+      (latestResult ? toFollowUpContext(latestResult, mode, query) : null);
+    setBusy("voice");
+    setError(null);
+    setPendingOfficer("Transcribing follow-up…");
+    try {
+      const data = await askVoiceFollowUp({
+        conversationId,
+        audio,
+        followUpContext: ctx,
+        languageHint: "en",
+      });
+      const officerText = data.transcription?.trim() || "Voice follow-up";
+      setConversationId(data.conversationId);
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: data.queryId || `${data.conversationId}-${prev.length + 1}`,
+          officerText,
+          result: data,
+        },
+      ]);
+      setCitationSnapshot(toFollowUpContext(data, mode, query));
+      setFollowUp("");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingOfficer(null);
+      setBusy(null);
+    }
+  }
+
+  async function toggleVoiceCapture() {
+    if (loading || !conversationId) return;
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("This browser cannot capture the microphone. Type the follow-up instead.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) chunksRef.current.push(ev.data);
+      };
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setRecording(false);
+        mediaRecorderRef.current = null;
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        chunksRef.current = [];
+        void submitVoiceBlob(blob);
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+      setError(null);
+    } catch {
+      setError("Microphone permission denied. Type the follow-up instead.");
+      setRecording(false);
+    }
   }
 
   function onFollowUpKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -199,10 +278,9 @@ export function QaPage() {
           tap a citation) — the resolver maps it to a cited ACC-/FIR- and re-runs retrieval.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          Graph-RAC Steps A–G — stacked thread in this session; follow-ups resolve to citations; “similar
-          cases / cases like this” uses vector search over FIR narratives; the model sees a bounded
-          prior-turn window plus the current pack. Server keeps the thread across AppSail recycle. Not
-          voice on this path.
+          Graph-RAC Steps A–H — stacked thread; follow-ups resolve to citations; “similar cases”
+          uses narrative vectors; mic follow-up (English) when STT is configured. Text path always
+          works if voice is down. Server keeps the thread across AppSail recycle.
         </p>
       </header>
 
@@ -289,7 +367,9 @@ export function QaPage() {
               <p className="text-[13.5px] text-[var(--ink-muted)]" role="status">
                 {busy === "followUp"
                   ? "Resolving follow-up and assembling the answer…"
-                  : "Assembling context and generating the answer…"}
+                  : busy === "voice"
+                    ? "Transcribing and assembling the answer…"
+                    : "Assembling context and generating the answer…"}
               </p>
             </div>
           )}
@@ -330,17 +410,33 @@ export function QaPage() {
               />
               <button
                 type="button"
+                onClick={() => void toggleVoiceCapture()}
+                disabled={loading && !recording}
+                className={`rounded border px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold transition-colors disabled:opacity-50 ${
+                  recording
+                    ? "border-[var(--risk-high)] bg-[var(--risk-high-soft)] text-[var(--risk-high)]"
+                    : "border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] hover:border-[var(--accent)]"
+                }`}
+                aria-pressed={recording}
+                aria-label={recording ? "Stop recording" : "Record voice follow-up"}
+                title="Speak a short English follow-up (under ~30s). Click again to stop and ask."
+              >
+                {recording ? "Stop mic" : "Mic"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void submitFollowUp()}
                 disabled={loading || !followUp.trim()}
                 className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] disabled:opacity-50"
               >
-                {busy === "followUp" ? "Asking…" : "Ask follow-up"}
+                {busy === "followUp" || busy === "voice" ? "Asking…" : "Ask follow-up"}
               </button>
             </div>
             <p className="text-[11.5px] text-[var(--ink-faint)]">
               Tip: tap an ACC-/FIR- citation chip under any answer. Ask “find similar cases” after an
-              FIR (or a briefing that cites FIRs). Vehicle / plate follow-ups re-open the owning accused
-              or FIR when a vehicle was cited.
+              FIR (or a briefing that cites FIRs). Mic sends a short English clip for transcription —
+              if speech-to-text is down, type instead. Vehicle / plate follow-ups re-open the owning
+              accused or FIR when a vehicle was cited.
             </p>
           </div>
         </div>

@@ -138,3 +138,83 @@ export async function askQuery(
 
   return (await res.json()) as QueryResult;
 }
+
+/** Voice follow-up (mvp2/12 Step H) — multipart audio → STT → same Graph-RAC ask path. */
+export async function askVoiceFollowUp(
+  input: {
+    conversationId: string;
+    audio: Blob;
+    filename?: string;
+    languageHint?: string;
+    followUpContext?: FollowUpContext | null;
+  },
+  signal?: AbortSignal,
+): Promise<QueryResult> {
+  const conversationId = input.conversationId.trim();
+  if (!conversationId) {
+    throw new Error("Voice follow-up requires an existing conversation");
+  }
+  if (!input.audio || input.audio.size < 256) {
+    throw new Error("Recording too short — hold the mic and speak a short follow-up");
+  }
+
+  const form = new FormData();
+  form.append(
+    "audio",
+    input.audio,
+    input.filename || (input.audio.type.includes("webm") ? "follow-up.webm" : "follow-up.wav"),
+  );
+  form.append("languageHint", input.languageHint?.trim() || "en");
+  if (input.followUpContext) {
+    form.append("followUpContext", JSON.stringify(input.followUpContext));
+  }
+
+  const base = apiGatewayBaseUrl();
+  const url = `${base}/v1/conversations/${encodeURIComponent(conversationId)}/queries:voice`;
+  let headers: Headers;
+  try {
+    headers = authHeaders();
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    throw new Error(`Voice follow-up failed (${raw}). Sign in again, then retry.`);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "POST", headers, body: form, signal });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (/timed?\s*out|networkerror|failed to fetch/i.test(raw)) {
+      throw new Error(
+        "Voice follow-up failed (network). Ensure STT is up, or type the follow-up instead.",
+      );
+    }
+    throw new Error(`Voice follow-up failed (${raw}).`);
+  }
+
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const body = (await res.json()) as {
+        error?: { message?: string };
+        data?: { message?: string };
+        message?: string;
+        detail?: string;
+      };
+      if (body?.error?.message) detail = body.error.message;
+      else if (body?.data?.message) detail = body.data.message;
+      else if (body?.message) detail = body.message;
+      else if (body?.detail) detail = body.detail;
+    } catch {
+      /* ignore */
+    }
+    if (/Speech-to-text|STT|503|unavailable/i.test(detail)) {
+      throw new Error(
+        "Speech-to-text is temporarily unavailable. Type your follow-up instead.",
+      );
+    }
+    throw new Error(`Voice follow-up failed (${detail}).`);
+  }
+
+  return (await res.json()) as QueryResult;
+}

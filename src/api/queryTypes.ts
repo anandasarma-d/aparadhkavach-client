@@ -15,4 +15,10 @@ export type QueryResult = {
   confidenceScore: number;
   reasoningSummary: string;
   latencyMs: number;
+  /** Present on voice follow-up responses (mvp2/12 Step H). */
+  transcription?: string;
+  transcriptionConfidence?: number;
+  transcriptionConfidenceTier?: string;
+  needsConfirmation?: boolean;
+  detectedLanguage?: string;
 };
