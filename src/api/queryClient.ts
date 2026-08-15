@@ -139,10 +139,29 @@ export async function askQuery(
   return (await res.json()) as QueryResult;
 }
 
-/** Voice follow-up (mvp2/12 Step H) — multipart audio → STT → same Graph-RAC ask path. */
-export async function askVoiceFollowUp(
+/** Create an empty conversation thread (Design Flow 2 — voice seed needs an id). */
+export async function createConversation(signal?: AbortSignal): Promise<string> {
+  const base = apiGatewayBaseUrl();
+  const url = `${base}/v1/conversations`;
+  const headers = authHeaders({ "Content-Type": "application/json" });
+  const res = await fetch(url, { method: "POST", headers, signal });
+  if (!res.ok) {
+    throw new Error(`Could not start a Q&A thread (${res.status}). Sign in again, then retry.`);
+  }
+  const body = (await res.json()) as { conversationId?: string };
+  if (!body.conversationId) {
+    throw new Error("Could not start a Q&A thread (missing conversationId).");
+  }
+  return body.conversationId;
+}
+
+/**
+ * ChatPanel voice (mvp2/12 Step H / Design Flow 2) — multipart audio → STT → same Graph-RAC ask
+ * path. Empty thread + spoken ACC-/FIR- seeds; otherwise follow-up resolution.
+ */
+export async function askVoice(
   input: {
-    conversationId: string;
+    conversationId?: string | null;
     audio: Blob;
     filename?: string;
     languageHint?: string;
@@ -150,19 +169,19 @@ export async function askVoiceFollowUp(
   },
   signal?: AbortSignal,
 ): Promise<QueryResult> {
-  const conversationId = input.conversationId.trim();
+  let conversationId = input.conversationId?.trim() || "";
   if (!conversationId) {
-    throw new Error("Voice follow-up requires an existing conversation");
+    conversationId = await createConversation(signal);
   }
   if (!input.audio || input.audio.size < 256) {
-    throw new Error("Recording too short — hold the mic and speak a short follow-up");
+    throw new Error("Recording too short — hold the mic and speak briefly (under ~30s)");
   }
 
   const form = new FormData();
   form.append(
     "audio",
     input.audio,
-    input.filename || (input.audio.type.includes("webm") ? "follow-up.webm" : "follow-up.wav"),
+    input.filename || (input.audio.type.includes("webm") ? "chat.webm" : "chat.wav"),
   );
   form.append("languageHint", input.languageHint?.trim() || "en");
   if (input.followUpContext) {
@@ -176,7 +195,7 @@ export async function askVoiceFollowUp(
     headers = authHeaders();
   } catch (err: unknown) {
     const raw = err instanceof Error ? err.message : String(err);
-    throw new Error(`Voice follow-up failed (${raw}). Sign in again, then retry.`);
+    throw new Error(`Voice ask failed (${raw}). Sign in again, then retry.`);
   }
 
   let res: Response;
@@ -186,10 +205,10 @@ export async function askVoiceFollowUp(
     const raw = err instanceof Error ? err.message : String(err);
     if (/timed?\s*out|networkerror|failed to fetch/i.test(raw)) {
       throw new Error(
-        "Voice follow-up failed (network). Ensure STT is up, or type the follow-up instead.",
+        "Voice ask failed (network). Ensure STT is up, or type your question instead.",
       );
     }
-    throw new Error(`Voice follow-up failed (${raw}).`);
+    throw new Error(`Voice ask failed (${raw}).`);
   }
 
   if (!res.ok) {
@@ -210,11 +229,25 @@ export async function askVoiceFollowUp(
     }
     if (/Speech-to-text|STT|503|unavailable/i.test(detail)) {
       throw new Error(
-        "Speech-to-text is temporarily unavailable. Type your follow-up instead.",
+        "Speech-to-text is temporarily unavailable. Type your question instead.",
       );
     }
-    throw new Error(`Voice follow-up failed (${detail}).`);
+    throw new Error(`Voice ask failed (${detail}).`);
   }
 
   return (await res.json()) as QueryResult;
+}
+
+/** @deprecated Use {@link askVoice} — kept for any external imports. */
+export async function askVoiceFollowUp(
+  input: {
+    conversationId: string;
+    audio: Blob;
+    filename?: string;
+    languageHint?: string;
+    followUpContext?: FollowUpContext | null;
+  },
+  signal?: AbortSignal,
+): Promise<QueryResult> {
+  return askVoice(input, signal);
 }
