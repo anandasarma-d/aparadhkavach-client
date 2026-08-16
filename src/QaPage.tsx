@@ -193,7 +193,11 @@ export function QaPage() {
         ? "audio/webm;codecs=opus"
         : MediaRecorder.isTypeSupported("audio/webm")
           ? "audio/webm"
-          : "";
+          : MediaRecorder.isTypeSupported("audio/mp4")
+            ? "audio/mp4"
+            : MediaRecorder.isTypeSupported("audio/aac")
+              ? "audio/aac"
+              : "";
       const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       chunksRef.current = [];
       voiceTargetRef.current = target;

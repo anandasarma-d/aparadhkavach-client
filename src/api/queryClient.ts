@@ -139,16 +139,74 @@ export async function askQuery(
   return (await res.json()) as QueryResult;
 }
 
+/** Safari often throws this opaque string on invalid JSON / bad Authorization header bytes. */
+function isSafariPatternError(raw: string): boolean {
+  return /did not match the expected pattern/i.test(raw);
+}
+
+/** Prefer text()+JSON.parse so empty/HTML bodies become actionable errors (not Safari pattern). */
+async function readJsonBody<T>(res: Response, label: string): Promise<T> {
+  const rawText = await res.text();
+  if (!rawText.trim()) {
+    throw new Error(`${label} returned an empty body (${res.status}).`);
+  }
+  try {
+    return JSON.parse(rawText) as T;
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (isSafariPatternError(raw) || err instanceof SyntaxError) {
+      throw new Error(
+        `${label} returned non-JSON (${res.status}). Type your question, or redeploy Gateway if Mic still fails.`,
+      );
+    }
+    throw new Error(`${label} response could not be parsed (${raw}).`);
+  }
+}
+
+function voiceAudioFilename(audio: Blob, explicit?: string): string {
+  if (explicit?.trim()) return explicit.trim();
+  const type = (audio.type || "").toLowerCase();
+  if (type.includes("webm")) return "chat.webm";
+  if (type.includes("mp4") || type.includes("mpeg") || type.includes("m4a")) return "chat.mp4";
+  if (type.includes("wav")) return "chat.wav";
+  if (type.includes("ogg")) return "chat.ogg";
+  return "chat.audio";
+}
+
+function voiceErrorDetail(body: {
+  error?: { message?: string };
+  data?: { message?: string };
+  message?: string;
+  detail?: string;
+}): string | null {
+  if (body?.error?.message) return body.error.message;
+  if (body?.data?.message) return body.data.message;
+  if (body?.message) return body.message;
+  if (body?.detail) return body.detail;
+  return null;
+}
+
 /** Create an empty conversation thread (Design Flow 2 — voice seed needs an id). */
 export async function createConversation(signal?: AbortSignal): Promise<string> {
   const base = apiGatewayBaseUrl();
   const url = `${base}/v1/conversations`;
-  const headers = authHeaders({ "Content-Type": "application/json" });
+  let headers: Headers;
+  try {
+    headers = authHeaders({ "Content-Type": "application/json" });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (isSafariPatternError(raw)) {
+      throw new Error(
+        "Could not start a Q&A thread (browser rejected the auth header). Sign out, sign in again, then retry.",
+      );
+    }
+    throw new Error(`Could not start a Q&A thread (${raw}).`);
+  }
   const res = await fetch(url, { method: "POST", headers, signal });
   if (!res.ok) {
     throw new Error(`Could not start a Q&A thread (${res.status}). Sign in again, then retry.`);
   }
-  const body = (await res.json()) as { conversationId?: string };
+  const body = await readJsonBody<{ conversationId?: string }>(res, "Start Q&A thread");
   if (!body.conversationId) {
     throw new Error("Could not start a Q&A thread (missing conversationId).");
   }
@@ -178,11 +236,7 @@ export async function askVoice(
   }
 
   const form = new FormData();
-  form.append(
-    "audio",
-    input.audio,
-    input.filename || (input.audio.type.includes("webm") ? "chat.webm" : "chat.wav"),
-  );
+  form.append("audio", input.audio, voiceAudioFilename(input.audio, input.filename));
   form.append("languageHint", input.languageHint?.trim() || "en");
   if (input.followUpContext) {
     form.append("followUpContext", JSON.stringify(input.followUpContext));
@@ -195,6 +249,11 @@ export async function askVoice(
     headers = authHeaders();
   } catch (err: unknown) {
     const raw = err instanceof Error ? err.message : String(err);
+    if (isSafariPatternError(raw)) {
+      throw new Error(
+        "Voice ask failed (browser rejected the auth header). Sign out, sign in again, then retry.",
+      );
+    }
     throw new Error(`Voice ask failed (${raw}). Sign in again, then retry.`);
   }
 
@@ -208,24 +267,31 @@ export async function askVoice(
         "Voice ask failed (network). Ensure STT is up, or type your question instead.",
       );
     }
+    if (isSafariPatternError(raw)) {
+      throw new Error(
+        "Voice ask failed (browser rejected the request). Sign out, sign in again, then retry — or type instead.",
+      );
+    }
     throw new Error(`Voice ask failed (${raw}).`);
   }
 
   if (!res.ok) {
     let detail = `${res.status}`;
     try {
-      const body = (await res.json()) as {
+      const body = await readJsonBody<{
         error?: { message?: string };
         data?: { message?: string };
         message?: string;
         detail?: string;
-      };
-      if (body?.error?.message) detail = body.error.message;
-      else if (body?.data?.message) detail = body.data.message;
-      else if (body?.message) detail = body.message;
-      else if (body?.detail) detail = body.detail;
-    } catch {
-      /* ignore */
+      }>(res, "Voice ask");
+      detail = voiceErrorDetail(body) || detail;
+    } catch (err: unknown) {
+      const raw = err instanceof Error ? err.message : String(err);
+      if (!/empty body|non-JSON/i.test(raw)) {
+        /* keep status */
+      } else {
+        detail = raw;
+      }
     }
     if (/Speech-to-text|STT|503|unavailable/i.test(detail)) {
       throw new Error(
@@ -235,7 +301,7 @@ export async function askVoice(
     throw new Error(`Voice ask failed (${detail}).`);
   }
 
-  return (await res.json()) as QueryResult;
+  return readJsonBody<QueryResult>(res, "Voice ask");
 }
 
 /** @deprecated Use {@link askVoice} — kept for any external imports. */
