@@ -139,6 +139,80 @@ export async function askQuery(
   return (await res.json()) as QueryResult;
 }
 
+/** mvp2/20 — plain-English discovery (NL → ANN → Claude). Same QueryResult envelope as ask. */
+export async function searchRecordsQuery(
+  input: { q: string; conversationId?: string | null; limit?: number },
+  signal?: AbortSignal,
+): Promise<QueryResult> {
+  const q = input.q?.trim() || "";
+  if (!q) {
+    throw new Error("Enter a short narrative question (e.g. vehicle theft near parking lot).");
+  }
+  const conversationId = input.conversationId?.trim() || null;
+  const limit = input.limit ?? 5;
+
+  const base = apiGatewayBaseUrl();
+  const url = `${base}/v1/queries:searchRecords`;
+  let res: Response;
+  let headers: Headers;
+  try {
+    headers = authHeaders({ "Content-Type": "application/json" });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (/did not match the expected pattern/i.test(raw)) {
+      throw new Error(
+        "Records search failed (browser rejected the auth header). Sign out, sign in again, then retry.",
+      );
+    }
+    throw new Error(`Records search failed (${raw}).`);
+  }
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ q, conversationId, limit }),
+      signal,
+    });
+  } catch (err: unknown) {
+    const raw = err instanceof Error ? err.message : String(err);
+    if (/timed?\s*out|networkerror|failed to fetch/i.test(raw)) {
+      throw new Error(
+        "Records search failed (network/timeout). Run appsail-demo-keep-warm.sh --once, then retry.",
+      );
+    }
+    if (/did not match the expected pattern/i.test(raw)) {
+      throw new Error(
+        "Records search failed (browser rejected the request). Sign out, sign in again, then retry.",
+      );
+    }
+    throw new Error(`Records search failed (${raw}).`);
+  }
+
+  if (!res.ok) {
+    let detail = `${res.status}`;
+    try {
+      const body = (await res.json()) as {
+        error?: { message?: string };
+        data?: { message?: string };
+        message?: string;
+      };
+      if (body?.error?.message) detail = body.error.message;
+      else if (body?.data?.message) detail = body.data.message;
+      else if (body?.message) detail = body.message;
+    } catch {
+      /* ignore */
+    }
+    if (/read timed out|i\/o error|execution_time_exceeded|408/i.test(detail)) {
+      throw new Error(
+        "Records search timed out. Run ./appsail-demo-keep-warm.sh --once, then retry.",
+      );
+    }
+    throw new Error(`Records search failed (${detail}).`);
+  }
+
+  return (await res.json()) as QueryResult;
+}
+
 /** Safari often throws this opaque string on invalid JSON / bad Authorization header bytes. */
 function isSafariPatternError(raw: string): boolean {
   return /did not match the expected pattern/i.test(raw);

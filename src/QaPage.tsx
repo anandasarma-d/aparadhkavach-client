@@ -9,6 +9,7 @@ import {
 import {
   askQuery,
   askVoice,
+  searchRecordsQuery,
   type FollowUpContext,
   type QueryResult,
   type RelatedEntity,
@@ -16,7 +17,7 @@ import {
 import { DEMO_ACCUSED } from "./lib/demoAccused";
 import { DEMO_FIRS } from "./lib/demoFirs";
 
-type SeedMode = "accused" | "fir";
+type SeedMode = "accused" | "fir" | "records";
 type BusyKind = "ask" | "followUp" | "voice";
 /** Which ChatPanel composer owns the active MediaRecorder. */
 type VoiceTarget = "seed" | "followUp";
@@ -31,8 +32,15 @@ type ThreadTurn = {
 const ACCUSED_ID_PATTERN = /^ACC-[A-Za-z0-9_-]+$/i;
 const FIR_ID_PATTERN = /^FIR-[A-Za-z0-9_-]+$/i;
 
+/** Demo narrative prompts for Records NL (mvp2/20) — not ACC-/FIR- seeds. */
+const DEMO_RECORDS_PROMPTS = [
+  "vehicle theft near parking lot",
+  "robbery at night involving two accused",
+  "chain snatching near bus stand",
+] as const;
+
 /**
- * Citation Q&A (mvp2/11) + Graph-RAC A–D backend + Step E stacked chat thread.
+ * Citation Q&A (mvp2/11) + Graph-RAC A–H + mvp2/20 Records NL discovery.
  */
 export function QaPage() {
   const [mode, setMode] = useState<SeedMode>("accused");
@@ -89,10 +97,39 @@ export function QaPage() {
     }
   }
 
+  async function runRecordsSearch(officerText: string) {
+    setBusy("ask");
+    setError(null);
+    setPendingOfficer(officerText);
+    try {
+      const data = await searchRecordsQuery({ q: officerText, conversationId, limit: 5 });
+      setConversationId(data.conversationId);
+      setTurns((prev) => [
+        ...prev,
+        {
+          id: data.queryId || `${data.conversationId}-${prev.length + 1}`,
+          officerText: officerText,
+          result: data,
+        },
+      ]);
+      setCitationSnapshot(toFollowUpContext(data, "records", officerText));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingOfficer(null);
+      setBusy(null);
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const seed = query.trim();
     if (!seed || loading) return;
+
+    if (mode === "records") {
+      await runRecordsSearch(seed);
+      return;
+    }
 
     const mismatch = validateSeedForMode(mode, seed);
     if (mismatch) {
@@ -275,13 +312,27 @@ export function QaPage() {
     resetThreadLocal();
   }
 
+  function pickRecordsPrompt(prompt: string) {
+    setMode("records");
+    setQuery(prompt);
+    resetThreadLocal();
+  }
+
   function selectMode(next: SeedMode) {
     setMode(next);
     resetThreadLocal();
+    if (next === "records") {
+      setQuery(DEMO_RECORDS_PROMPTS[0]);
+      setError(null);
+      return;
+    }
     const seed = query.trim();
-    if (seed) {
+    if (seed && (next === "accused" || next === "fir")) {
       const mismatch = validateSeedForMode(next, seed);
-      if (mismatch) setError(mismatch);
+      if (mismatch) {
+        setQuery(next === "accused" ? (DEMO_ACCUSED[5]?.accusedId ?? "ACC-00040") : "FIR-003276");
+        setError(null);
+      }
     }
   }
 
@@ -299,13 +350,13 @@ export function QaPage() {
           Q&amp;A with citations
         </h1>
         <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--ink-muted)]">
-          Enter one accused id or FIR (or speak it with Mic). After the first answer, ask a follow-up
-          in plain language — or Mic again — the resolver maps it to a cited ACC-/FIR- and re-runs
-          retrieval.
+          Seed with an accused or FIR id, or use <strong>Records</strong> for a plain-English
+          narrative question over FIR embeddings (Claude answer + citations). After the first
+          answer, follow up in plain language — the resolver maps it to a cited ACC-/FIR-.
         </p>
         <p className="mt-2 text-[12.5px] font-medium text-[var(--accent-ink)]">
-          Graph-RAC Steps A–H — ChatPanel Mic on seed and follow-up (Design Flow 2). Text path always
-          works if voice is down. Server keeps the thread across AppSail recycle.
+          Graph-RAC A–H + Records NL (mvp2/20). Records uses the same similarity floor as typed
+          Similar — not a crime-type SQL filter. Mic stays on Accused/FIR seed modes.
         </p>
       </header>
 
@@ -317,40 +368,67 @@ export function QaPage() {
           <ModeChip active={mode === "fir"} onClick={() => selectMode("fir")}>
             FIR
           </ModeChip>
+          <ModeChip active={mode === "records"} onClick={() => selectMode("records")}>
+            Records
+          </ModeChip>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={mode === "accused" ? "ACC-00040" : "FIR-003276"}
-            className="min-w-[16rem] flex-1 rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-2 font-[family-name:var(--font-mono)] text-[13px] text-[var(--ink)] outline-none focus:border-[var(--accent)]"
-            aria-label={mode === "accused" ? "Accused id" : "FIR id"}
+            placeholder={
+              mode === "accused"
+                ? "ACC-00040"
+                : mode === "fir"
+                  ? "FIR-003276"
+                  : "vehicle theft near parking lot"
+            }
+            className={`min-w-[16rem] flex-1 rounded border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-[13px] text-[var(--ink)] outline-none focus:border-[var(--accent)] ${
+              mode === "records"
+                ? "font-[family-name:var(--font-body)]"
+                : "font-[family-name:var(--font-mono)]"
+            }`}
+            aria-label={
+              mode === "accused"
+                ? "Accused id"
+                : mode === "fir"
+                  ? "FIR id"
+                  : "Plain-English records question"
+            }
             disabled={loading}
           />
-          <button
-            type="button"
-            onClick={() => void toggleVoiceCapture("seed")}
-            disabled={loading && !recording}
-            className={`rounded border px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold transition-colors disabled:opacity-50 ${
-              recording && voiceTarget === "seed"
-                ? "border-[var(--risk-high)] bg-[var(--risk-high-soft)] text-[var(--risk-high)]"
-                : "border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] hover:border-[var(--accent)]"
-            }`}
-            aria-pressed={recording && voiceTarget === "seed"}
-            aria-label={
-              recording && voiceTarget === "seed" ? "Stop recording" : "Record voice seed ask"
-            }
-            title="Speak an ACC-/FIR- id (English, under ~30s). Click again to stop and ask."
-          >
-            {recording && voiceTarget === "seed" ? "Stop mic" : "Mic"}
-          </button>
+          {mode !== "records" && (
+            <button
+              type="button"
+              onClick={() => void toggleVoiceCapture("seed")}
+              disabled={loading && !recording}
+              className={`rounded border px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold transition-colors disabled:opacity-50 ${
+                recording && voiceTarget === "seed"
+                  ? "border-[var(--risk-high)] bg-[var(--risk-high-soft)] text-[var(--risk-high)]"
+                  : "border-[var(--line-strong)] bg-[var(--surface-2)] text-[var(--ink)] hover:border-[var(--accent)]"
+              }`}
+              aria-pressed={recording && voiceTarget === "seed"}
+              aria-label={
+                recording && voiceTarget === "seed" ? "Stop recording" : "Record voice seed ask"
+              }
+              title="Speak an ACC-/FIR- id (English, under ~30s). Click again to stop and ask."
+            >
+              {recording && voiceTarget === "seed" ? "Stop mic" : "Mic"}
+            </button>
+          )}
           <button
             type="submit"
             disabled={loading || !query.trim()}
             className="rounded border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-2.5 font-[family-name:var(--font-mono)] text-[13px] font-semibold text-[var(--accent-ink)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--surface)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:opacity-50"
           >
-            {busy === "ask" || (busy === "voice" && !conversationId) ? "Asking…" : "Ask"}
+            {busy === "ask" || (busy === "voice" && !conversationId)
+              ? mode === "records"
+                ? "Searching…"
+                : "Asking…"
+              : mode === "records"
+                ? "Search"
+                : "Ask"}
           </button>
           {conversationId && (
             <button
@@ -364,29 +442,45 @@ export function QaPage() {
           )}
         </div>
         <p className="text-[11.5px] text-[var(--ink-faint)]">
-          Mic is always available next to the ChatPanel input (Design §11). Speak the id clearly,
-          e.g. “ACC-00040”. If speech-to-text is down, type instead.
+          {mode === "records"
+            ? "Prefer a short modus phrase. Weak crime-label queries may return empty (floor 0.50). For a ranked table without Claude, use the Similar page Narrative mode."
+            : "Mic is always available next to the ChatPanel input (Design §11). Speak the id clearly, e.g. “ACC-00040”. If speech-to-text is down, type instead."}
         </p>
       </form>
 
       <div className="mb-6 flex flex-wrap gap-1.5">
-        {(mode === "accused" ? DEMO_ACCUSED : DEMO_FIRS).map((item) => {
-          const id = "accusedId" in item ? item.accusedId : item.firId;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => ("accusedId" in item ? pickAccused(id) : pickFir(id))}
-              className={`rounded-full border px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11.5px] transition-colors ${
-                query === id
-                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"
-                  : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"
-              }`}
-            >
-              {id}
-            </button>
-          );
-        })}
+        {mode === "records"
+          ? DEMO_RECORDS_PROMPTS.map((prompt) => (
+              <button
+                key={prompt}
+                type="button"
+                onClick={() => pickRecordsPrompt(prompt)}
+                className={`rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+                  query === prompt
+                    ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"
+                    : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"
+                }`}
+              >
+                {prompt}
+              </button>
+            ))
+          : (mode === "accused" ? DEMO_ACCUSED : DEMO_FIRS).map((item) => {
+              const id = "accusedId" in item ? item.accusedId : item.firId;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => ("accusedId" in item ? pickAccused(id) : pickFir(id))}
+                  className={`rounded-full border px-2.5 py-1 font-[family-name:var(--font-mono)] text-[11.5px] transition-colors ${
+                    query === id
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent-ink)]"
+                      : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink-muted)] hover:border-[var(--accent)] hover:text-[var(--accent-ink)]"
+                  }`}
+                >
+                  {id}
+                </button>
+              );
+            })}
       </div>
 
       {error && !conversationId && (
@@ -558,13 +652,15 @@ function toFollowUpContext(
   const fromMode =
     mode === "accused"
       ? { accusedId: ACCUSED_ID_PATTERN.test(seed) ? seed : null, firId: null as string | null }
-      : { accusedId: null as string | null, firId: FIR_ID_PATTERN.test(seed) ? seed : null };
+      : mode === "fir"
+        ? { accusedId: null as string | null, firId: FIR_ID_PATTERN.test(seed) ? seed : null }
+        : { accusedId: null as string | null, firId: null as string | null };
 
   // Prefer an ACC-/FIR- evidence id when the form seed no longer matches the last ask.
   let accusedId = fromMode.accusedId;
   let firId = fromMode.firId;
   if (!accusedId && !firId) {
-    for (const id of result.evidenceSources ?? []) {
+    for (const id of [...(result.relatedFirs ?? []), ...(result.evidenceSources ?? [])]) {
       const upper = id.toUpperCase();
       if (upper.startsWith("ACC-")) {
         accusedId = id;
@@ -596,6 +692,10 @@ export function extractSpokenSeedId(text: string): string | null {
 export function validateSeedForMode(mode: SeedMode, seed: string): string | null {
   const id = seed.trim();
   if (!id) return "Enter an id to ask.";
+
+  if (mode === "records") {
+    return null;
+  }
 
   if (mode === "accused") {
     if (FIR_ID_PATTERN.test(id)) {
